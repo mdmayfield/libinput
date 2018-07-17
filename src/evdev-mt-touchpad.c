@@ -1485,23 +1485,43 @@ tp_detect_thumb_while_moving(struct tp_dispatch *tp)
 	assert(second);
 
 	if (tp->scroll.method == LIBINPUT_CONFIG_SCROLL_2FG) {
-		/* If the second finger comes down next to the other one, we
-		 * assume this is a scroll motion.
+		/* If the second finger comes down next to the other one,
+		 * we assume this is a scroll motion.
 		 */
 		distance.x = abs(first->point.x - second->point.x);
 		distance.y = abs(first->point.y - second->point.y);
 		mm = evdev_device_unit_delta_to_mm(tp->device, &distance);
 
-		if (mm.x <= 25 && mm.y <= 15)
+		/* Was 25mm x and 15mm y; be more generous due to more aggressive
+         * thumb detection
+		 */
+
+		if (mm.x <= 40 && mm.y <= 20)
 			return;
 	}
 
-	/* Finger are too far apart or 2fg scrolling is disabled, mark
-	 * second finger as thumb */
-	evdev_log_debug(tp->device,
-			"touch %d is speed-based thumb\n",
-			second->index);
-	second->thumb.state = THUMB_STATE_YES;
+	/* If fingers are too far apart or 2fg scrolling is disabled,
+	 * detect thumb by relative y coordinate */
+
+	/* If first touch is lower than the second, mark as thumb */
+
+	if (first->point.y > second->point.y) {
+		evdev_log_debug(tp->device,
+				"touch %d is lower; marking as thumb\n",
+				first->index);
+		first->thumb.state = THUMB_STATE_YES;
+	}
+
+	/* If second touch is lower than the first, mark as thumb */
+
+	if (second->point.y > first->point.y) {
+		evdev_log_debug(tp->device,
+				"touch %d is lower; marking as thumb\n",
+				second->index);
+		second->thumb.state = THUMB_STATE_YES;
+		return;
+	}
+
 }
 
 static void
@@ -1606,11 +1626,11 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 		}
 	}
 
-	/* If we have one touch that exceeds the speed and we get a new
-	 * touch down while doing that, the second touch is a thumb */
+	/* Whenever a new touch is registered, use the new thumb
+     * detection based on y-coordinate
+	 */
 	if (have_new_touch &&
-	    tp->nfingers_down == 2 &&
-	    speed_exceeded_count > 5)
+	    tp->nfingers_down == 2)
 		tp_detect_thumb_while_moving(tp);
 
 	if (restart_filter)
