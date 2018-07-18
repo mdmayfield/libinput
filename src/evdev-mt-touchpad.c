@@ -1470,12 +1470,23 @@ tp_detect_thumb_while_moving(struct tp_dispatch *tp)
 			*second = NULL;
 	struct device_coords distance;
 	struct phys_coords mm;
+	int new_touches = 0;
 
 	tp_for_each_touch(tp, t) {
 		if (t->state != TOUCH_BEGIN)
 			first = t;
-		else
+		else {
+			/* If we get here, that means we have a touch with
+			 * state == TOUCH_BEGIN. There must be 0 or 1 of these,
+			 * no more. If 2+ we get false-positive thumbs when
+			 * two fingers land during the same frame.
+			 */
 			second = t;
+			new_touches++;
+		}
+
+		if (new_touches >= 2)
+			return;
 
 		if (first && second)
 			break;
@@ -1496,7 +1507,7 @@ tp_detect_thumb_while_moving(struct tp_dispatch *tp)
          * thumb detection
 		 */
 
-		if (mm.x <= 40 && mm.y <= 20)
+		if (mm.x <= 40 && mm.y <= 25)
 			return;
 	}
 
