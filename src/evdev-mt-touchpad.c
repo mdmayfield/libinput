@@ -1440,7 +1440,7 @@ tp_detect_jumps(const struct tp_dispatch *tp, struct tp_touch *t)
 {
 	struct device_coords delta;
 	struct phys_coords mm;
-	const int JUMP_THRESHOLD_MM = 20;
+	const int JUMP_THRESHOLD_MM = 6; //MM custom; XPS 15 has bad jumps
 	struct tp_history_point *last;
 
 	/* We haven't seen pointer jumps on Wacom tablets yet, so exclude
