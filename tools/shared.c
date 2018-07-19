@@ -267,10 +267,9 @@ tools_open_udev(const char *seat, bool verbose, bool *grab)
 		goto out;
 	}
 
-	if (verbose) {
-		libinput_log_set_handler(li, log_handler);
+	libinput_log_set_handler(li, log_handler);
+	if (verbose)
 		libinput_log_set_priority(li, LIBINPUT_LOG_PRIORITY_DEBUG);
-	}
 
 	if (libinput_udev_assign_seat(li, seat)) {
 		fprintf(stderr, "Failed to set seat\n");
@@ -311,6 +310,13 @@ tools_open_device(const char *path, bool verbose, bool *grab)
 	return li;
 }
 
+static void
+tools_setenv_quirks_dir(void)
+{
+	if (tools_execdir_is_builddir(NULL, 0))
+		setenv("LIBINPUT_QUIRKS_DIR", LIBINPUT_QUIRKS_SRCDIR, 0);
+}
+
 struct libinput *
 tools_open_backend(enum tools_backend which,
 		   const char *seat_or_device,
@@ -318,6 +324,8 @@ tools_open_backend(enum tools_backend which,
 		   bool *grab)
 {
 	struct libinput *li;
+
+	tools_setenv_quirks_dir();
 
 	switch (which) {
 	case BACKEND_UDEV:
@@ -467,38 +475,51 @@ out:
 	return is_touchpad;
 }
 
-/* Try to read the directory we're executing from and if it matches the
- * builddir, return it as path. Otherwise, return NULL.
+/**
+ * Try to read the directory we're executing from and if it matches the
+ * builddir, return it.
+ *
+ * @param execdir_out If not NULL, set to the exec directory
+ * @param sz Size of execdir_out
+ *
+ * @return true if the execdir is the builddir, false otherwise.
+ *
+ * If execdir_out is NULL and szt is 0, it merely returns true/false.
  */
-char *
-tools_execdir_is_builddir(void)
+bool
+tools_execdir_is_builddir(char *execdir_out, size_t sz)
 {
 	char execdir[PATH_MAX] = {0};
 	char *pathsep;
-	ssize_t sz;
+	ssize_t nread;
 
 	/* In the case of release builds, the builddir is
 	   the empty string */
 	if (streq(MESON_BUILD_ROOT, ""))
-		return NULL;
+		return false;
 
-	sz = readlink("/proc/self/exe", execdir, sizeof(execdir) - 1);
-	if (sz <= 0 || sz == sizeof(execdir) - 1)
-		return NULL;
+	nread = readlink("/proc/self/exe", execdir, sizeof(execdir) - 1);
+	if (nread <= 0 || nread == sizeof(execdir) - 1)
+		return false;
 
 	/* readlink doesn't terminate the string and readlink says
 	   anything past sz is undefined */
-	execdir[sz + 1] = '\0';
+	execdir[++nread] = '\0';
 
 	pathsep = strrchr(execdir, '/');
 	if (!pathsep)
-		return NULL;
+		return false;
 
 	*pathsep = '\0';
 	if (!streq(execdir, MESON_BUILD_ROOT))
-		return NULL;
+		return false;
 
-	return safe_strdup(execdir);
+	if (sz > 0) {
+		assert(execdir_out != NULL);
+		assert(sz >= (size_t)nread);
+		snprintf(execdir_out, nread, "%s", execdir);
+	}
+	return true;
 }
 
 static inline void
@@ -506,17 +527,18 @@ setup_path(void)
 {
 	const char *path = getenv("PATH");
 	char new_path[PATH_MAX];
-	char *builddir;
+	char builddir[PATH_MAX];
+	const char *extra_path = LIBINPUT_TOOL_PATH;
 
-	builddir = tools_execdir_is_builddir();
+	if (tools_execdir_is_builddir(builddir, sizeof(builddir)))
+		extra_path = builddir;
 
 	snprintf(new_path,
 		 sizeof(new_path),
 		 "%s:%s",
-		 builddir ? builddir : LIBINPUT_TOOL_PATH,
+		 extra_path,
 		 path ? path : "");
 	setenv("PATH", new_path, 1);
-	free(builddir);
 }
 
 int
