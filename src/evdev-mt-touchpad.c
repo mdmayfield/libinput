@@ -1463,78 +1463,54 @@ tp_detect_jumps(const struct tp_dispatch *tp, struct tp_touch *t)
 }
 
 static void
-tp_detect_thumb_while_moving(struct tp_dispatch *tp)
+tp_detect_thumb_by_y_coord(struct tp_dispatch *tp)
 {
 	struct tp_touch *t;
 	struct tp_touch *first = NULL,
 			*second = NULL;
 	struct device_coords distance;
 	struct phys_coords mm;
-	int new_touches = 0;
+
+	/* Get the first- and second- most downward touches. */
 
 	tp_for_each_touch(tp, t) {
 		if (t->state == TOUCH_NONE ||
 		    t->state == TOUCH_HOVERING)
 			continue;
 
-		if (t->state != TOUCH_BEGIN)
+		if (!first) {
 			first = t;
-		else {
-			/* If we get here, that means we have a touch with
-			 * state == TOUCH_BEGIN. There must be 0 or 1 of these,
-			 * no more. If 2+ we get false-positive thumbs when
-			 * two fingers land during the same frame.
-			 */
-			second = t;
-			new_touches++;
+			continue;
 		}
 
-		if (new_touches >= 2)
-			return;
+		if (t->point.y > first->point.y) {
+			second = first;
+			first = t;
+			continue;
+		}
 
-		if (first && second)
-			break;
+		if (!second || t->point.y > second->point.y ) {
+			second = t;
+		}
+
 	}
 
 	assert(first);
 	assert(second);
 
-	if (tp->scroll.method == LIBINPUT_CONFIG_SCROLL_2FG) {
-		/* If the second finger comes down next to the other one,
-		 * we assume this is a scroll motion.
-		 */
-		distance.x = abs(first->point.x - second->point.x);
-		distance.y = abs(first->point.y - second->point.y);
-		mm = evdev_device_unit_delta_to_mm(tp->device, &distance);
+	distance.x = first->point.x - second->point.x;
+	distance.y = first->point.y - second->point.y;
+	mm = evdev_device_unit_delta_to_mm(tp->device, &distance);
 
-		/* Was 25mm x and 15mm y; be more generous due to more aggressive
-         * thumb detection
-		 */
+	/* Assign thumb status based on if one of the touches is a lot
+	 * more than a finger's width lower than the others.
+	 */
 
-		if (mm.x <= 40 && mm.y <= 25)
-			return;
-	}
-
-	/* If fingers are too far apart or 2fg scrolling is disabled,
-	 * detect thumb by relative y coordinate */
-
-	/* If first touch is lower than the second, mark as thumb */
-
-	if (first->point.y > second->point.y) {
+	if (mm.y > 25.0) {
 		evdev_log_debug(tp->device,
-				"touch %d is lower; marking as thumb\n",
+				"touch %d >25mm lower; marking as thumb\n",
 				first->index);
 		first->thumb.state = THUMB_STATE_YES;
-	}
-
-	/* If second touch is lower than the first, mark as thumb */
-
-	if (second->point.y > first->point.y) {
-		evdev_log_debug(tp->device,
-				"touch %d is lower; marking as thumb\n",
-				second->index);
-		second->thumb.state = THUMB_STATE_YES;
-		return;
 	}
 
 }
@@ -1641,12 +1617,17 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 		}
 	}
 
-	/* Whenever a new touch is registered, use the new thumb
-     * detection based on y-coordinate
+	/* Whenever a new touch is added, it has the potential to either BE a
+	 * thumb itself, OR reveal by context that an existing touch WAS already
+	 * a thumb, whether we detected it or not.
+	 *
+	 * On registering a 2nd/3rd/... additional touch, detect thumbs using
+	 * a y-coordinate heuristic.
 	 */
+
 	if (have_new_touch &&
-	    tp->nfingers_down == 2)
-		tp_detect_thumb_while_moving(tp);
+	    tp->nfingers_down >= 2)
+		tp_detect_thumb_by_y_coord(tp);
 
 	if (restart_filter)
 		filter_restart(tp->device->pointer.filter, tp, time);
