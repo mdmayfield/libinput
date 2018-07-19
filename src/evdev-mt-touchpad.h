@@ -231,7 +231,6 @@ struct tp_touch {
 
 	struct {
 		double last_speed; /* speed in mm/s at last sample */
-		unsigned int exceeded_count;
 	} speed;
 };
 

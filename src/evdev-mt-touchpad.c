@@ -314,7 +314,6 @@ tp_new_touch(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	t->pinned.is_pinned = false;
 	t->time = time;
 	t->speed.last_speed = 0;
-	t->speed.exceeded_count = 0;
 	t->hysteresis.x_motion_history = 0;
 	tp->queued |= TOUCHPAD_EVENT_MOTION;
 }
@@ -1542,7 +1541,6 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 	bool restart_filter = false;
 	bool want_motion_reset;
 	bool have_new_touch = false;
-	unsigned int speed_exceeded_count = 0;
 
 	tp_position_fake_touches(tp);
 
@@ -1560,16 +1558,6 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 			t->quirks.reset_motion_history = false;
 		}
 
-		if (!t->dirty) {
-			/* A non-dirty touch must be below the speed limit */
-			if (t->speed.exceeded_count > 0)
-				t->speed.exceeded_count--;
-
-			speed_exceeded_count = max(speed_exceeded_count,
-						   t->speed.exceeded_count);
-			continue;
-		}
-
 		if (tp_detect_jumps(tp, t)) {
 			if (!tp->semi_mt)
 				evdev_log_bug_kernel(tp->device,
@@ -1584,28 +1572,6 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 		tp_detect_wobbling(tp, t, time);
 		tp_motion_hysteresis(tp, t);
 		tp_motion_history_push(t);
-
-		/* Touch speed handling: if we'are above the threshold,
-		 * count each event that we're over the threshold up to 10
-		 * events. Count down when we are below the speed.
-		 *
-		 * Take the touch with the highest speed excess, if it is
-		 * above a certain threshold (5, see below), assume a
-		 * dropped finger is a thumb.
-		 *
-		 * Yes, this relies on the touchpad to keep sending us
-		 * events even if the finger doesn't move, otherwise we
-		 * never count down. Let's see how far we get with that.
-		 */
-		if (t->speed.last_speed > THUMB_IGNORE_SPEED_THRESHOLD) {
-			if (t->speed.exceeded_count < 10)
-				t->speed.exceeded_count++;
-		} else if (t->speed.exceeded_count > 0) {
-				t->speed.exceeded_count--;
-		}
-
-		speed_exceeded_count = max(speed_exceeded_count,
-					   t->speed.exceeded_count);
 
 		tp_calculate_motion_speed(tp, t);
 
