@@ -121,7 +121,7 @@ tp_calculate_motion_speed(struct tp_dispatch *tp, struct tp_touch *t)
 	speed = distance/(t->time - last->time); /* mm/us */
 	speed *= 1000000; /* mm/s */
 
-	t->speed.last_speed = speed;
+	t->last_speed = speed;
 }
 
 static inline void
@@ -313,7 +313,7 @@ tp_new_touch(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	t->state = TOUCH_HOVERING;
 	t->pinned.is_pinned = false;
 	t->time = time;
-	t->speed.last_speed = 0;
+	t->last_speed = 0;
 	t->hysteresis.x_motion_history = 0;
 	tp->queued |= TOUCHPAD_EVENT_MOTION;
 }

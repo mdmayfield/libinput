@@ -229,9 +229,8 @@ struct tp_touch {
 		struct device_coords initial;
 	} thumb;
 
-	struct {
-		double last_speed; /* speed in mm/s at last sample */
-	} speed;
+	double last_speed; /* speed in mm/s at last sample */
+
 };
 
 enum suspend_trigger {
