@@ -141,6 +141,7 @@ enum tp_thumb_state {
 	THUMB_STATE_NO,
 	THUMB_STATE_YES,
 	THUMB_STATE_MAYBE,
+	THUMB_STATE_LIKELY
 };
 
 struct tp_touch {
@@ -231,7 +232,6 @@ struct tp_touch {
 
 	struct {
 		double last_speed; /* speed in mm/s at last sample */
-		unsigned int exceeded_count;
 	} speed;
 };
 
