@@ -1008,7 +1008,8 @@ tp_clickfinger_set_button(struct tp_dispatch *tp)
 		if (t->state != TOUCH_BEGIN && t->state != TOUCH_UPDATE)
 			continue;
 
-		if (t->thumb.state == THUMB_STATE_YES)
+		if (t->thumb.state == THUMB_STATE_YES ||
+		    t->thumb.state == THUMB_STATE_LIKELY)
 			continue;
 
 		if (t->palm.state != PALM_NONE)
