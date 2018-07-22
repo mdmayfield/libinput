@@ -1468,7 +1468,7 @@ tp_detect_thumb_by_position(struct tp_dispatch *tp, uint64_t time)
 		    t->state == TOUCH_HOVERING)
 			continue;
 
-		if (!newest || t->time < newest->time)
+		if (t->state == TOUCH_BEGIN)
 			newest = t;
 
 		speed_exceeded_count = max(speed_exceeded_count,
@@ -1510,13 +1510,18 @@ tp_detect_thumb_by_position(struct tp_dispatch *tp, uint64_t time)
 		return;
 	}
 
-	/* If there are only two touches, and we are using edge scrolling,
-	 * and one of the touches is moving quickly, the newest is a thumb.
+	/* If there is a new touch, and existing touch is moving quickly while
+	 * 2fg scrolling is disabled OR the touches are far apart, the new touch
+	 * is a thumb.
 	 */
 
-	if (tp->scroll.method == LIBINPUT_CONFIG_SCROLL_EDGE &&
-	    tp->nfingers_down == 2 &&
-	    speed_exceeded_count > 5) {
+	if (!newest)
+		return;
+
+	if (tp->nfingers_down == 2 &&
+	    speed_exceeded_count > 5 &&
+	     (tp->scroll.method != LIBINPUT_CONFIG_SCROLL_2FG ||
+		  mm.x > 25.0)) {
 		evdev_log_debug(tp->device,
 				"touch %d is speed-based thumb\n",
 				newest->index);
