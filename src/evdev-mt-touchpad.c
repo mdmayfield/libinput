@@ -1107,14 +1107,16 @@ tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 		t->thumb.state == THUMB_STATE_NO )
 		return;
 
-	/* If the thumb moves significantly, it's not a resting thumb. */
 	if (t->state == TOUCH_BEGIN)
 		t->thumb.initial = t->point;
 	else if (t->state == TOUCH_UPDATE) {
 		struct device_float_coords delta;
 		struct phys_coords mm;
+		double threshold = 0.0;
 
-		/* In addition to context from tp_detect_thumb_by_position,
+		/* If the thumb moves significantly, it's not a resting thumb.
+		 * Set a context-based threshold to define "significantly."
+		 * In addition to context from tp_detect_thumb_by_position,
 		 * a touch is more likely to be a thumb based on a combination
 		 * of two factors: position on the touchpad, and time lingering
 		 * in one place. Smoothly combine these factors to accommodate
@@ -1128,8 +1130,6 @@ tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 		 * threshold. For touches below the upper thumb line, raise this
 		 * smoothly to 10mm at the lower line and >10mm below.
 		 */
-
-		double threshold = 0.0;
 		if (t->point.y > tp->thumb.upper_thumb_line)
 			threshold = threshold + (10.0 *
 			 (t->point.y - tp->thumb.upper_thumb_line) /
@@ -1149,7 +1149,6 @@ tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 		 * we've misidentified a thumb as a finger, this will be corrected
 		 * on a subsequent touch >25mm above this one.
 		 */
-
 		if (length_in_mm(mm) > threshold) {
 			t->thumb.state = THUMB_STATE_NO;
 			goto out;
@@ -1535,7 +1534,6 @@ tp_detect_thumb_by_position(struct tp_dispatch *tp, uint64_t time)
 	/* Assign thumb status based on if one of the touches is a lot
 	 * more than a finger's width lower than the others.
 	 */
-
 	if (mm.y > 25.0 && first->thumb.state != THUMB_STATE_YES) {
 		evdev_log_debug(tp->device,
 				"touch %d >25mm lower; likely a thumb\n",
@@ -1549,7 +1547,6 @@ tp_detect_thumb_by_position(struct tp_dispatch *tp, uint64_t time)
 	 * 2fg scrolling is disabled OR the touches are far apart, the new touch
 	 * is a thumb.
 	 */
-
 	if (!newest)
 		return;
 
@@ -1561,7 +1558,7 @@ tp_detect_thumb_by_position(struct tp_dispatch *tp, uint64_t time)
 				"touch %d is speed-based thumb\n",
 				newest->index);
 		newest->thumb.state = THUMB_STATE_YES;
-		}
+	}
 
 }
 
@@ -1637,7 +1634,7 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 		if (t->speed.last_speed > THUMB_IGNORE_SPEED_THRESHOLD) {
 			if (t->speed.exceeded_count < 10)
 				t->speed.exceeded_count++;
-			} else if (t->speed.exceeded_count > 0) {
+		} else if (t->speed.exceeded_count > 0) {
 				t->speed.exceeded_count--;
 		}
 
@@ -1658,7 +1655,6 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 	 * On registering a 2nd/3rd/... additional touch, detect thumbs using
 	 * position.
 	 */
-
 	if (have_new_touch &&
 	    tp->nfingers_down >= 2)
 		tp_detect_thumb_by_position(tp, time);
