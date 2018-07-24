@@ -328,7 +328,7 @@ tp_begin_touch(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	t->was_down = true;
 	tp->nfingers_down++;
 	t->palm.time = time;
-	t->thumb.state = THUMB_STATE_MAYBE;
+	t->thumb.state = THUMB_STATE_NO;
 	t->thumb.first_touch_time = time;
 	t->tap.is_thumb = false;
 	t->tap.is_palm = false;
@@ -711,8 +711,7 @@ tp_touch_active(const struct tp_dispatch *tp, const struct tp_touch *t)
 	return (t->state == TOUCH_BEGIN || t->state == TOUCH_UPDATE) &&
 		t->palm.state == PALM_NONE &&
 		!t->pinned.is_pinned &&
-		t->thumb.state != THUMB_STATE_YES &&
-		t->thumb.state != THUMB_STATE_LIKELY &&
+		t->thumb.state == THUMB_STATE_NO &&
 		tp_button_touch_active(tp, t) &&
 		tp_edge_scroll_touch_active(tp, t);
 }
@@ -1090,7 +1089,6 @@ thumb_state_to_str(enum tp_thumb_state state)
 	CASE_RETURN_STRING(THUMB_STATE_NO);
 	CASE_RETURN_STRING(THUMB_STATE_YES);
 	CASE_RETURN_STRING(THUMB_STATE_MAYBE);
-	CASE_RETURN_STRING(THUMB_STATE_LIKELY);
 	}
 
 	return NULL;
@@ -1101,10 +1099,9 @@ tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 {
 	enum tp_thumb_state state = t->thumb.state;
 
-	/* once a thumb, always a thumb, once ruled out always ruled out */
+	/* once a thumb, always a thumb */
 	if (!tp->thumb.detect_thumbs ||
-	    t->thumb.state == THUMB_STATE_YES ||
-		t->thumb.state == THUMB_STATE_NO )
+	    t->thumb.state == THUMB_STATE_YES)
 		return;
 
 	if (t->state == TOUCH_BEGIN)
@@ -1538,7 +1535,7 @@ tp_detect_thumb_by_position(struct tp_dispatch *tp, uint64_t time)
 		evdev_log_debug(tp->device,
 				"touch %d >25mm lower; likely a thumb\n",
 				first->index);
-		first->thumb.state = THUMB_STATE_LIKELY;
+		first->thumb.state = THUMB_STATE_MAYBE;
 		first->thumb.initial = first->point;
 		return;
 	}
