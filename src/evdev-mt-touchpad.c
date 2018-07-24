@@ -1104,6 +1104,19 @@ tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	    t->thumb.state == THUMB_STATE_YES)
 		return;
 
+	/* A very large touch below the upper thumb line = definite thumb */
+	if (t->pressure > tp->thumb.threshold &&
+	    t->point.y >= tp->thumb.upper_thumb_line) {
+		t->thumb.state = THUMB_STATE_YES;
+		goto out;
+	}
+
+	/* If a thumb wasn't identified by size above, nor as MAYBE a thumb
+	 * due to position, no need for the threshold check
+	 */
+	if (t->thumb.state == THUMB_STATE_NO)
+		return;
+
 	if (t->state == TOUCH_BEGIN)
 		t->thumb.initial = t->point;
 	else if (t->state == TOUCH_UPDATE) {
@@ -1134,7 +1147,7 @@ tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 
 		/* Next, adjust based on lingering time. Add 1mm / 100msec to
 		 * threshold to account for resting thumbs, up to 15mm maximum.
-		*/
+		 */
 		threshold = fmin(15.0, threshold +
 		                ((time - t->thumb.first_touch_time) /
 		                 (float)(100 * 1000)));
@@ -1146,16 +1159,9 @@ tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 		 * we've misidentified a thumb as a finger, this will be corrected
 		 * on a subsequent touch >25mm above this one.
 		 */
-		if (length_in_mm(mm) > threshold) {
+		if (length_in_mm(mm) > threshold)
 			t->thumb.state = THUMB_STATE_NO;
-			goto out;
-		}
 	}
-
-	/* A very large touch below the upper thumb line = definite thumb */
-	if (t->pressure > tp->thumb.threshold &&
-	    t->point.y >= tp->thumb.upper_thumb_line)
-		t->thumb.state = THUMB_STATE_YES;
 
 	/* now what? we marked it as thumb, so:
 	 *
