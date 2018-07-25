@@ -1497,11 +1497,8 @@ tp_detect_thumb_by_position(struct tp_dispatch *tp, uint64_t time)
 	struct phys_coords mm;
 	unsigned int speed_exceeded_count = 0;
 
-	if (!tp->thumb.detect_thumbs)
-		return;
-
-	/* Get the first and second bottom-most touches. Also get the
-	 * max speed exceeded count overall, and the newest touch.
+	/* Get the first and second bottom-most touches, the max speed exceeded
+	 * count overall, and the newest touch (or one of them, if more).
 	 */
 	tp_for_each_touch(tp, t) {
 		if (t->state == TOUCH_NONE ||
@@ -1537,45 +1534,12 @@ tp_detect_thumb_by_position(struct tp_dispatch *tp, uint64_t time)
 	distance.y = abs(first->point.y - second->point.y);
 	mm = evdev_device_unit_delta_to_mm(tp->device, &distance);
 
-	/* If we have more touches than the hardware supports, we cannot
-	 * rely on position to detect thumbs. When we see touch number
-	 * (num_slots)+1, mark any MAYBE thumbs as NO. This allows for
-	 * position-based thumb detection when possible, and accurate
-	 * touch count otherwise.
-	 */
-	if (tp->nfingers_down > tp->num_slots) {
-		tp_for_each_touch(tp, t) {
-			if (t->thumb.state == THUMB_STATE_MAYBE)
-				t->thumb.state = THUMB_STATE_NO;
-		}
-		return;
-	}
-
-	/* Assign thumb status based on if one of the touches is a lot more
-	 * than a finger's width lower than the others. If the hardware doesn't
-	 * support enough slots, or can detect size/pressure, skip this check.
-	 */
-	if (mm.y > 25.0 &&
-	    first->thumb.state != THUMB_STATE_YES &&
-	    tp->pressure.use_pressure == false &&
-	    tp->touch_size.use_touch_size == false &&
-	    tp->num_slots >= tp->nfingers_down) {
-		evdev_log_debug(tp->device,
-				"touch %d >25mm lower; likely a thumb\n",
-				first->index);
-		first->thumb.state = THUMB_STATE_MAYBE;
-		first->thumb.initial = first->point;
-		return;
-	}
-
-	/* If there is a new touch, and existing touch is moving quickly while
+	/* If there's a new touch and an existing touch is moving quickly while
 	 * 2fg scrolling is disabled OR the touches are far apart, the new touch
 	 * is a thumb.
 	 */
-	if (!newest)
-		return;
-
-	if (tp->nfingers_down == 2 &&
+	if (newest &&
+	    tp->nfingers_down == 2 &&
 	    speed_exceeded_count > 5 &&
 	     (tp->scroll.method != LIBINPUT_CONFIG_SCROLL_2FG ||
 		  mm.x > 25.0)) {
@@ -1583,6 +1547,39 @@ tp_detect_thumb_by_position(struct tp_dispatch *tp, uint64_t time)
 				"touch %d is speed-based thumb\n",
 				newest->index);
 		newest->thumb.state = THUMB_STATE_YES;
+	}
+
+	/* Don't use other thumb detection if not enabled for the device */
+	if (!tp->thumb.detect_thumbs)
+		return;
+
+	/* Assign thumb status based on if one of the touches is a lot more
+	 * than a finger's width lower than the others. If the hardware doesn't
+	 * support enough slots, or can detect size or pressure, skip this.
+	 */
+	if (mm.y > 25.0 &&
+	    first->thumb.state != THUMB_STATE_YES &&
+	    tp->pressure.use_pressure == false &&
+	    tp->touch_size.use_touch_size == false &&
+	    tp->nfingers_down <= tp->num_slots) {
+		evdev_log_debug(tp->device,
+				"touch %d >25mm lower; likely a thumb\n",
+				first->index);
+		first->thumb.state = THUMB_STATE_MAYBE;
+		first->thumb.initial = first->point;
+	}
+
+	/* If we have more touches than the hardware supports, we cannot
+	 * rely on position to detect thumbs. When we see touch number
+	 * (num_slots)+1, mark any MAYBE thumbs as NO, even if detected
+	 * earlier. This allows for position-based thumb detection when
+	 * possible, and accurate touch count otherwise.
+	 */
+	if (tp->nfingers_down > tp->num_slots) {
+		tp_for_each_touch(tp, t) {
+			if (t->thumb.state == THUMB_STATE_MAYBE)
+				t->thumb.state = THUMB_STATE_NO;
+		}
 	}
 
 }
