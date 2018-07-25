@@ -2984,11 +2984,21 @@ tp_init_thumb(struct tp_dispatch *tp)
 		}
 	}
 
+	if (libevdev_has_event_code(device->evdev, EV_ABS, ABS_MT_TOUCH_MAJOR)) {
+		if (quirks_get_uint32(q,
+				      QUIRK_ATTR_THUMB_SIZE_THRESHOLD,
+				      &threshold)) {
+			tp->thumb.use_size = true;
+			tp->thumb.size_threshold = threshold;
+		}
+	}
+
 	quirks_unref(q);
 
 	evdev_log_debug(device,
-			"thumb: enabled thumb detection%s\n",
-			tp->thumb.use_pressure ? " (+pressure)" : "");
+			"thumb: enabled thumb detection%s%s\n",
+			tp->thumb.use_pressure ? " (+pressure)" : "",
+			tp->thumb.use_size ? " (+size)" : "");
 }
 
 static bool

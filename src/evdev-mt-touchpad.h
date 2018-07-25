@@ -437,6 +437,9 @@ struct tp_dispatch {
 
 		bool use_pressure;
 		int pressure_threshold;
+
+		bool use_size;
+		int size_threshold;
 	} thumb;
 
 	struct {
