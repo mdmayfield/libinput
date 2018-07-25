@@ -2941,7 +2941,6 @@ static void
 tp_init_thumb(struct tp_dispatch *tp)
 {
 	struct evdev_device *device = tp->device;
-	const struct input_absinfo *abs;
 	double w = 0.0, h = 0.0;
 	struct device_coords edges;
 	struct phys_coords mm = { 0.0, 0.0 };
@@ -2960,7 +2959,8 @@ tp_init_thumb(struct tp_dispatch *tp)
 		return;
 
 	tp->thumb.detect_thumbs = true;
-	tp->thumb.threshold = INT_MAX;
+	tp->thumb.use_pressure = false;
+	tp->thumb.pressure_threshold = INT_MAX;
 
 	/* detect thumbs by pressure in the bottom 15mm, detect thumbs by
 	 * lingering in the bottom 8mm */
@@ -2972,22 +2972,23 @@ tp_init_thumb(struct tp_dispatch *tp)
 	edges = evdev_device_mm_to_units(device, &mm);
 	tp->thumb.lower_thumb_line = edges.y;
 
-	abs = libevdev_get_abs_info(device->evdev, ABS_MT_PRESSURE);
-	if (!abs)
-		goto out;
-
 	quirks = evdev_libinput_context(device)->quirks;
 	q = quirks_fetch_for_device(quirks, device->udev_device);
-	if (quirks_get_uint32(q,
-			      QUIRK_ATTR_THUMB_PRESSURE_THRESHOLD,
-			      &threshold))
-		tp->thumb.threshold = threshold;
+
+	if (libevdev_has_event_code(device->evdev, EV_ABS, ABS_MT_PRESSURE)) {
+		if (quirks_get_uint32(q,
+				      QUIRK_ATTR_THUMB_PRESSURE_THRESHOLD,
+				      &threshold)) {
+			tp->thumb.use_pressure = true;
+			tp->thumb.pressure_threshold = threshold;
+		}
+	}
+
 	quirks_unref(q);
 
-out:
 	evdev_log_debug(device,
 			"thumb: enabled thumb detection%s\n",
-			tp->thumb.threshold != INT_MAX ? " (+pressure)" : "");
+			tp->thumb.use_pressure ? " (+pressure)" : "");
 }
 
 static bool
