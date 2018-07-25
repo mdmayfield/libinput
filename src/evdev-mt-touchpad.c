@@ -1538,7 +1538,7 @@ tp_detect_thumb_by_position(struct tp_dispatch *tp, uint64_t time)
 	 * rely on position to detect thumbs. When we see touch number
 	 * (num_slots)+1, mark any MAYBE thumbs as NO. This allows for
 	 * position-based thumb detection when possible, and accurate
-	 * touch count when not.
+	 * touch count otherwise.
 	 */
 	if (tp->nfingers_down > tp->num_slots) {
 		tp_for_each_touch(tp, t) {
@@ -1548,12 +1548,14 @@ tp_detect_thumb_by_position(struct tp_dispatch *tp, uint64_t time)
 		return;
 	}
 
-	/* Assign thumb status based on if one of the touches is a lot
-	 * more than a finger's width lower than the others. If the hardware
-	 * doesn't support enough slots, skip this check.
+	/* Assign thumb status based on if one of the touches is a lot more
+	 * than a finger's width lower than the others. If the hardware doesn't
+	 * support enough slots, or can detect size/pressure, skip this check.
 	 */
 	if (mm.y > 25.0 &&
 	    first->thumb.state != THUMB_STATE_YES &&
+	    tp->pressure.use_pressure == false &&
+	    tp->touch_size.use_touch_size == false &&
 	    tp->num_slots >= tp->nfingers_down) {
 		evdev_log_debug(tp->device,
 				"touch %d >25mm lower; likely a thumb\n",
