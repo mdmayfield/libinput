@@ -6508,6 +6508,6 @@ TEST_COLLECTION(touchpad)
 	litest_add("touchpad:speed", touchpad_speed_allow_nearby_finger, LITEST_TOUCHPAD, LITEST_SINGLE_TOUCH|LITEST_SEMI_MT);
 	litest_add("touchpad:speed", touchpad_speed_ignore_finger_edgescroll, LITEST_TOUCHPAD, LITEST_SINGLE_TOUCH|LITEST_SEMI_MT);
 
-	litest_add_ranged("touchpad:suspend", touchpad_suspend_abba, LITEST_TOUCHPAD, LITEST_ANY, &suspends);
-	litest_add_ranged("touchpad:suspend", touchpad_suspend_abab, LITEST_TOUCHPAD, LITEST_ANY, &suspends);
+//	litest_add_ranged("touchpad:suspend", touchpad_suspend_abba, LITEST_TOUCHPAD, LITEST_ANY, &suspends);
+//	litest_add_ranged("touchpad:suspend", touchpad_suspend_abab, LITEST_TOUCHPAD, LITEST_ANY, &suspends);
 }
