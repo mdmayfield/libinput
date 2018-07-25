@@ -1534,10 +1534,27 @@ tp_detect_thumb_by_position(struct tp_dispatch *tp, uint64_t time)
 	distance.y = abs(first->point.y - second->point.y);
 	mm = evdev_device_unit_delta_to_mm(tp->device, &distance);
 
-	/* Assign thumb status based on if one of the touches is a lot
-	 * more than a finger's width lower than the others.
+	/* If we have more touches than the hardware supports, we cannot
+	 * rely on position to detect thumbs. When we see touch number
+	 * (num_slots)+1, mark any MAYBE thumbs as NO. This allows for
+	 * position-based thumb detection when possible, and accurate
+	 * touch count when not.
 	 */
-	if (mm.y > 25.0 && first->thumb.state != THUMB_STATE_YES) {
+	if (tp->nfingers_down > tp->num_slots) {
+		tp_for_each_touch(tp, t) {
+			if (t->thumb.state == THUMB_STATE_MAYBE)
+				t->thumb.state = THUMB_STATE_NO;
+		}
+		return;
+	}
+
+	/* Assign thumb status based on if one of the touches is a lot
+	 * more than a finger's width lower than the others. If the hardware
+	 * doesn't support enough slots, skip this check.
+	 */
+	if (mm.y > 25.0 &&
+	    first->thumb.state != THUMB_STATE_YES &&
+	    tp->num_slots >= tp->nfingers_down) {
 		evdev_log_debug(tp->device,
 				"touch %d >25mm lower; likely a thumb\n",
 				first->index);
