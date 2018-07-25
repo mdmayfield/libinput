@@ -1497,6 +1497,9 @@ tp_detect_thumb_by_position(struct tp_dispatch *tp, uint64_t time)
 	struct phys_coords mm;
 	unsigned int speed_exceeded_count = 0;
 
+	if (!tp->thumb.detect_thumbs)
+		return;
+
 	/* Get the first and second bottom-most touches. Also get the
 	 * max speed exceeded count overall, and the newest touch.
 	 */
