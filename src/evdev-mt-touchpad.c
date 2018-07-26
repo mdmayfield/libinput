@@ -1159,8 +1159,14 @@ tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 		 * we've misidentified a thumb as a finger, this will be corrected
 		 * on a subsequent touch >25mm above this one.
 		 */
-		if (length_in_mm(mm) > threshold)
+		if (length_in_mm(mm) > threshold) {
 			t->thumb.state = THUMB_STATE_NO;
+
+			/* If a gesture is in progress, cancel it so
+			 * the thumb is recognized properly.
+			 */
+			tp_gesture_cancel(tp, time);
+		}
 	}
 
 	/* now what? we marked it as thumb, so:
