@@ -1094,6 +1094,26 @@ thumb_state_to_str(enum tp_thumb_state state)
 	return NULL;
 }
 
+static bool
+tp_is_thumb_by_size(struct tp_dispatch *tp, struct tp_touch *t)
+{
+	/* Calculate current aspect ratio, and "area" threshold based on 2:1.
+	 * Major is not necessarily bigger than minor, based on tests with
+	 * Magic Trackpad. 
+	 */
+	int bigger = max(t->major, t->minor);
+	int smaller = min(t->major, t->minor);
+	float aspect = (smaller != 0) ? (float)bigger/smaller : 1000;
+	float adjusted_threshold = tp->thumb.size_threshold *
+	                           (tp->thumb.size_threshold / 2);	
+
+	/* Most thumb touches are large, but some finger touches are large too.
+	 * All finger touches have an aspect ratio relatively near 1:1. The
+	 * closer the aspect ratio is to 1.0, the less size matters.
+	 */
+	return (bigger * smaller) * (aspect - 1.0) >= adjusted_threshold;
+}
+
 static void
 tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 {
@@ -1111,20 +1131,21 @@ tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	 * for life. If we can't be sure due to missing size / pressure sensing,
 	 * use _MAYBE so we can correct false guesses.
 	 *
-	 * A thumb at the edge of the touchpad may not trigger size/pressure
-	 * if the surface area is too small, but it will quickly be caught
-	 * either as a MAYBE thumb when a proper finger touches >25mm above it,
-	 * or as a YES thumb due to moving and becoming large enough. Otherwise
-	 * it is most likely a moving thumb intended to control the cursor.
+	 * A thumb at the edge of the touchpad may not trigger pressure if
+	 * the surface area is too small. If using pressure detection, a
+	 * touch lingering below the lower_thumb_line becomes a thumb.
 	 */
-	if (t->point.y > tp->thumb.upper_thumb_line ||
-	    t->thumb.state == THUMB_STATE_MAYBE) {
+	if (t->point.y > tp->thumb.upper_thumb_line) {
 		if (tp->thumb.use_pressure &&
 		    t->pressure > tp->thumb.pressure_threshold)
 			t->thumb.state = THUMB_STATE_YES;
 		else if (tp->thumb.use_size &&
-			 (t->major * t->major / (abs(t->minor) + 20) >
-			  tp->thumb.size_threshold))
+			 tp_is_thumb_by_size(tp, t))
+			t->thumb.state = THUMB_STATE_YES;
+		else if (t->point.y > tp->thumb.lower_thumb_line &&
+		 tp->scroll.method != LIBINPUT_CONFIG_SCROLL_EDGE &&
+		 t->thumb.first_touch_time + THUMB_MOVE_TIMEOUT < time &&
+		 tp->thumb.use_pressure)
 			t->thumb.state = THUMB_STATE_YES;
 	}
 
