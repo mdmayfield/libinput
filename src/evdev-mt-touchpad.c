@@ -1104,15 +1104,32 @@ tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	    t->thumb.state == THUMB_STATE_YES)
 		return;
 
-	/* A very large touch below the upper thumb line = definite thumb */
-	if (t->pressure > tp->thumb.threshold &&
-	    t->point.y >= tp->thumb.upper_thumb_line) {
-		t->thumb.state = THUMB_STATE_YES;
-		goto out;
+	/* Thumb detection by size or pressure applies either if the thumb is
+	 * below the upper_thumb_line, OR if it might be a thumb by position.
+	 *
+	 * If the hardware tells us it's thumb, THUMB_STATE_YES makes it a thumb
+	 * for life. If we can't be sure due to missing size / pressure sensing,
+	 * use _MAYBE so we can correct false guesses.
+	 *
+	 * A thumb at the edge of the touchpad may not trigger size/pressure
+	 * if the surface area is too small, but it will quickly be caught
+	 * either as a MAYBE thumb when a proper finger touches >25mm above it,
+	 * or as a YES thumb due to moving and becoming large enough. Otherwise
+	 * it is most likely a moving thumb intended to control the cursor.
+	 */
+	if (t->point.y > tp->thumb.upper_thumb_line ||
+	    t->thumb.state == THUMB_STATE_MAYBE) {
+		if (tp->thumb.use_pressure &&
+		    t->pressure > tp->thumb.pressure_threshold)
+			t->thumb.state = THUMB_STATE_YES;
+		else if (tp->thumb.use_size &&
+			 (t->major * t->major / (abs(t->minor) + 20) >
+			  tp->thumb.size_threshold))
+			t->thumb.state = THUMB_STATE_YES;
 	}
 
-	/* If a thumb wasn't identified by size above, nor as MAYBE a thumb
-	 * due to position, no need for the threshold check
+	/* If a touch wasn't identified as possible thumb due to size, pressure,
+	 * and/or position, no need for the threshold check
 	 */
 	if (t->thumb.state == THUMB_STATE_NO)
 		return;
@@ -1145,12 +1162,12 @@ tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 			 (t->point.y - tp->thumb.upper_thumb_line) /
 			 (tp->thumb.lower_thumb_line - tp->thumb.upper_thumb_line));
 
-		/* Next, adjust based on lingering time. Add 1mm / 100msec to
+		/* Next, adjust based on lingering time. Add 1mm / 150msec to
 		 * threshold to account for resting thumbs, up to 15mm maximum.
 		 */
 		threshold = fmin(15.0, threshold +
 		                ((time - t->thumb.first_touch_time) /
-		                 (float)(100 * 1000)));
+		                 (float)(150 * 1000)));
 
 		delta = device_delta(t->point, t->thumb.initial);
 		mm = tp_phys_delta(tp, delta);
@@ -1163,29 +1180,11 @@ tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 			t->thumb.state = THUMB_STATE_NO;
 
 			/* If a gesture is in progress, cancel it so
-			 * the thumb is recognized next frame.
+			 * the former thumb is recognized next frame.
 			 */
 			tp_gesture_cancel(tp, time);
 		}
 	}
-
-	/* Note: a thumb at the edge of the touchpad won't trigger the
-	 * threshold, the surface area is usually too small. So we have a
-	 * two-stage detection: pressure and time within the area.
-	 * A finger that remains at the very bottom of the touchpad becomes
-	 * a thumb.
-	 */
-	if (tp->thumb.use_pressure &&
-	    t->pressure > tp->thumb.pressure_threshold)
-		t->thumb.state = THUMB_STATE_YES;
-	else if (tp->thumb.use_size &&
-		 (t->major * t->major / (abs(t->minor) + 20) >
-		  tp->thumb.size_threshold))
-		t->thumb.state = THUMB_STATE_YES;
-	else if (t->point.y > tp->thumb.lower_thumb_line &&
-		 tp->scroll.method != LIBINPUT_CONFIG_SCROLL_EDGE &&
-		 t->thumb.first_touch_time + THUMB_MOVE_TIMEOUT < time)
-		t->thumb.state = THUMB_STATE_YES;
 
 	/* now what? we marked it as thumb, so:
 	 *
@@ -1197,7 +1196,6 @@ tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	 * - tapping: honour thumb on begin, ignore it otherwise for now,
 	 *   this gets a tad complicated otherwise
 	 */
-out:
 	if (t->thumb.state != state)
 		evdev_log_debug(tp->device,
 			  "thumb state: touch %d, %s → %s\n",
