@@ -407,6 +407,23 @@ tp_gesture_handle_state_scroll(struct tp_dispatch *tp, uint64_t time)
 	if (normalized_is_zero(delta))
 		return GESTURE_STATE_SCROLL;
 
+	evdev_log_debug(tp->device,
+		"Delta was (%f, %f), ", delta.x, delta.y);
+
+	/* First test: only allow vert or horiz */
+	if (fabs(delta.x) > fabs(delta.y)) {
+		delta.y = 0.0;
+		evdev_log_debug(tp->device, "y=0?");
+	}
+
+	if (fabs(delta.y) > fabs(delta.x)) {
+		delta.x = 0.0;
+		evdev_log_debug(tp->device, "x=0?");
+	}
+
+	evdev_log_debug(tp->device,
+		"becomes (%f, %f)\n", delta.x, delta.y);
+
 	tp_gesture_start(tp, time);
 	evdev_post_scroll(tp->device,
 			  time,
