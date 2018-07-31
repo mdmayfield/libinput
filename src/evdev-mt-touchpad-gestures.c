@@ -80,6 +80,16 @@ tp_get_touches_delta(struct tp_dispatch *tp, bool average)
 	return delta;
 }
 
+
+static void
+tp_gesture_init_scroll(struct tp_dispatch *tp)
+{
+	tp->scroll.x_constrained = false;
+	tp->scroll.y_constrained = false;
+	tp->scroll.x_count = 8;
+	tp->scroll.y_count = 8;
+}
+
 static inline struct device_float_coords
 tp_get_combined_touches_delta(struct tp_dispatch *tp)
 {
@@ -108,7 +118,7 @@ tp_gesture_start(struct tp_dispatch *tp, uint64_t time)
 				       __func__);
 		break;
 	case GESTURE_STATE_SCROLL:
-		/* NOP */
+		tp_gesture_init_scroll(tp);
 		break;
 	case GESTURE_STATE_PINCH:
 		gesture_notify_pinch(&tp->device->base, time,
@@ -234,6 +244,75 @@ tp_gesture_set_scroll_buildup(struct tp_dispatch *tp)
 
 	average = device_float_average(d0, d1);
 	tp->device->scroll.buildup = tp_normalize_delta(tp, average);
+}
+
+static void
+tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
+				  struct normalized_coords *delta)
+{
+	#define CONSTRAINT_MAX 10
+	#define UNCONSTRAINT_MIN 5
+
+	double slope = 0;
+
+	/* Both constraints == true means we've broken free for good */
+	if (tp->scroll.x_constrained && tp->scroll.y_constrained)
+		return;
+
+	/* Trigonometry is expensive. Use slope to determine direction.
+	 * Slope of >1.73 is within 30° of vertical. Inc Y, Dec x.
+	 * Slope of <0.57 is within 30° of horizontal. Inc X, Dec Y.
+	 * Otherwise increment both.
+	 */
+
+	slope = (delta->x != 0) ? abs(delta->y / delta->x) : INFINITY;
+
+	if (slope > 0.57) {
+		if (tp->scroll.y_count < CONSTRAINT_MAX)
+			tp->scroll.y_count++;
+	}
+	else {
+		if (tp->scroll.y_count > 0)
+			tp->scroll.y_count--;
+	}
+	if (slope < 1.73) {
+		if (tp->scroll.x_count < CONSTRAINT_MAX)
+			tp->scroll.x_count++;
+	}
+	else {
+		if (tp->scroll.x_count > 0)
+			tp->scroll.x_count--;
+	}
+
+	printf("x_count = %d, y_count = %d.", tp->scroll.x_count, tp->scroll.y_count);
+
+	if (tp->scroll.x_count >= CONSTRAINT_MAX) {
+		tp->scroll.y_constrained = true;
+		printf(" Const_Y");
+		if(tp->scroll.y_count < UNCONSTRAINT_MIN) {
+			tp->scroll.x_constrained = false;
+			printf(" Unconst_X");
+		}
+	}
+
+	if (tp->scroll.y_count >= CONSTRAINT_MAX) {
+		tp->scroll.x_constrained = true;
+		printf(" Const_X");
+		if(tp->scroll.x_count < UNCONSTRAINT_MIN) {
+			tp->scroll.y_constrained = false;
+			printf(" Unconst_Y");
+		}
+	}
+
+	if (tp->scroll.x_constrained && !tp->scroll.y_constrained) {
+		delta->x = 0.0;
+		printf(" dx->0");
+	}
+	if (!tp->scroll.x_constrained && tp->scroll.y_constrained) {
+		delta->y = 0.0;
+		printf(" dy->0");
+	}
+	printf("\n");
 }
 
 static enum tp_gesture_state
@@ -407,22 +486,14 @@ tp_gesture_handle_state_scroll(struct tp_dispatch *tp, uint64_t time)
 	if (normalized_is_zero(delta))
 		return GESTURE_STATE_SCROLL;
 
-	evdev_log_debug(tp->device,
-		"Delta was (%f, %f), ", delta.x, delta.y);
+//	evdev_log_debug(tp->device,
+//		"Delta was (%f, %f), ", delta.x, delta.y);
 
-	/* First test: only allow vert or horiz */
-	if (fabs(delta.x) > fabs(delta.y)) {
-		delta.y = 0.0;
-		evdev_log_debug(tp->device, "y=0?");
-	}
+	/* check for a user-selectable option could go here */
+	tp_gesture_apply_scroll_constraints(tp, &delta);
 
-	if (fabs(delta.y) > fabs(delta.x)) {
-		delta.x = 0.0;
-		evdev_log_debug(tp->device, "x=0?");
-	}
-
-	evdev_log_debug(tp->device,
-		"becomes (%f, %f)\n", delta.x, delta.y);
+//	evdev_log_debug(tp->device,
+//		"becomes (%f, %f)\n", delta.x, delta.y);
 
 	tp_gesture_start(tp, time);
 	evdev_post_scroll(tp->device,

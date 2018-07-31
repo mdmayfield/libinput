@@ -358,6 +358,10 @@ struct tp_dispatch {
 		enum libinput_config_scroll_method method;
 		int32_t right_edge;		/* in device coordinates */
 		int32_t bottom_edge;		/* in device coordinates */
+		bool x_constrained;
+		bool y_constrained;
+		unsigned int x_count;
+		unsigned int y_count;
 	} scroll;
 
 	enum touchpad_event queued;
