@@ -86,8 +86,8 @@ tp_gesture_init_scroll(struct tp_dispatch *tp)
 {
 	tp->scroll.x_constrained = false;
 	tp->scroll.y_constrained = false;
-	tp->scroll.x_count = 8;
-	tp->scroll.y_count = 8;
+	tp->scroll.x_count = 15;
+	tp->scroll.y_count = 15;
 }
 
 static inline struct device_float_coords
@@ -250,69 +250,72 @@ static void
 tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 				  struct normalized_coords *delta)
 {
-	#define CONSTRAINT_MAX 10
-	#define UNCONSTRAINT_MIN 5
+	double slope;
 
-	double slope = 0;
-
-	/* Both constraints == true means we've broken free for good */
+	/* Both constraints == true means free scrolling is enabled */
 	if (tp->scroll.x_constrained && tp->scroll.y_constrained)
 		return;
 
-	/* Trigonometry is expensive. Use slope to determine direction.
-	 * Slope of >1.73 is within 30° of vertical. Inc Y, Dec x.
-	 * Slope of <0.57 is within 30° of horizontal. Inc X, Dec Y.
-	 * Otherwise increment both.
+	/* Trigonometry is expensive. Use slope to determine direction:
+	 * Slope 3.73 - inf.: 75°+, nearly vertical      X--  Y++
+	 * Slope 1.73 - 3.73: 60°+, generally vertical        Y++
+	 * Slope 0.57 - 1.73: 30°+, generally diagonal   X++  Y++
+	 * Slope 0.27 - 0.53: 15°+, generally horizontal X++
+	 * Slope 0.00 - 0.27:  0°+, nearly horizontal    X++  Y--
+	 *
+	 * If both axis counts reach their limits, allow free scrolling
+	 * in any direction. Until then, constrain to 90° angles.
 	 */
 
+	/* Division by zero can crash the X server, so avoid it */
 	slope = (delta->x != 0) ? abs(delta->y / delta->x) : INFINITY;
 
-	if (slope > 0.57) {
-		if (tp->scroll.y_count < CONSTRAINT_MAX)
+	if (slope >= 0.57) {
+		if (tp->scroll.y_count < 16)
 			tp->scroll.y_count++;
 	}
-	else {
-		if (tp->scroll.y_count > 0)
-			tp->scroll.y_count--;
-	}
 	if (slope < 1.73) {
-		if (tp->scroll.x_count < CONSTRAINT_MAX)
+		if (tp->scroll.x_count < 16)
 			tp->scroll.x_count++;
 	}
-	else {
+	if (slope >= 3.73) {
 		if (tp->scroll.x_count > 0)
 			tp->scroll.x_count--;
 	}
+	if (slope < 0.27) {
+		if (tp->scroll.y_count > 0)
+			tp->scroll.y_count--;
+	}
 
-	printf("x_count = %d, y_count = %d.", tp->scroll.x_count, tp->scroll.y_count);
-
-	if (tp->scroll.x_count >= CONSTRAINT_MAX) {
+	/* Whenever either axis count reaches 16, set the other axis to
+	 * constrained. If, at the same time, the other axis count has fallen
+	 * below 12, we've probably just switched between straight vertical and
+	 * straight horizontal. In that case we un-constrain the other axis.
+	 */
+	if (tp->scroll.x_count >= 16) {
 		tp->scroll.y_constrained = true;
-		printf(" Const_Y");
-		if(tp->scroll.y_count < UNCONSTRAINT_MIN) {
+		if(tp->scroll.y_count < 12)
 			tp->scroll.x_constrained = false;
-			printf(" Unconst_X");
-		}
 	}
 
-	if (tp->scroll.y_count >= CONSTRAINT_MAX) {
+	if (tp->scroll.y_count >= 16) {
 		tp->scroll.x_constrained = true;
-		printf(" Const_X");
-		if(tp->scroll.x_count < UNCONSTRAINT_MIN) {
+		if(tp->scroll.x_count < 12)
 			tp->scroll.y_constrained = false;
-			printf(" Unconst_Y");
-		}
 	}
 
-	if (tp->scroll.x_constrained && !tp->scroll.y_constrained) {
+	/* If both axes constrained flags are set, then we have detected
+	 * deliberate diagonal movement. Allow delta as-is and enable free
+	 * scrolling for the life of the gesture.
+	 */
+	if (tp->scroll.x_constrained && tp->scroll.y_constrained)
+		return;
+
+	/* Adjust deltas to constrain to vertical / horizontal */
+	if (tp->scroll.x_constrained)
 		delta->x = 0.0;
-		printf(" dx->0");
-	}
-	if (!tp->scroll.x_constrained && tp->scroll.y_constrained) {
+	if (tp->scroll.y_constrained)
 		delta->y = 0.0;
-		printf(" dy->0");
-	}
-	printf("\n");
 }
 
 static enum tp_gesture_state
@@ -486,14 +489,7 @@ tp_gesture_handle_state_scroll(struct tp_dispatch *tp, uint64_t time)
 	if (normalized_is_zero(delta))
 		return GESTURE_STATE_SCROLL;
 
-//	evdev_log_debug(tp->device,
-//		"Delta was (%f, %f), ", delta.x, delta.y);
-
-	/* check for a user-selectable option could go here */
 	tp_gesture_apply_scroll_constraints(tp, &delta);
-
-//	evdev_log_debug(tp->device,
-//		"becomes (%f, %f)\n", delta.x, delta.y);
 
 	tp_gesture_start(tp, time);
 	evdev_post_scroll(tp->device,
