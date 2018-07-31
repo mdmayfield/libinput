@@ -80,6 +80,16 @@ tp_get_touches_delta(struct tp_dispatch *tp, bool average)
 	return delta;
 }
 
+
+static void
+tp_gesture_init_scroll(struct tp_dispatch *tp)
+{
+	tp->scroll.x_constrained = false;
+	tp->scroll.y_constrained = false;
+	tp->scroll.x_count = 15;
+	tp->scroll.y_count = 15;
+}
+
 static inline struct device_float_coords
 tp_get_combined_touches_delta(struct tp_dispatch *tp)
 {
@@ -108,7 +118,7 @@ tp_gesture_start(struct tp_dispatch *tp, uint64_t time)
 				       __func__);
 		break;
 	case GESTURE_STATE_SCROLL:
-		/* NOP */
+		tp_gesture_init_scroll(tp);
 		break;
 	case GESTURE_STATE_PINCH:
 		gesture_notify_pinch(&tp->device->base, time,
@@ -234,6 +244,79 @@ tp_gesture_set_scroll_buildup(struct tp_dispatch *tp)
 
 	average = device_float_average(d0, d1);
 	tp->device->scroll.buildup = tp_normalize_delta(tp, average);
+}
+
+static void
+tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
+				  struct normalized_coords *delta)
+{
+	double slope;
+
+	/* Both constraints == true means free scrolling is enabled */
+	if (tp->scroll.x_constrained && tp->scroll.y_constrained)
+		return;
+
+	/* Trigonometry is expensive. Use slope to determine direction,
+	 * and increment/decrement each axis' counter accordingly:
+	 *
+	 * Slope 3.73 - inf.: 75°+, nearly vertical      X--  Y++
+	 * Slope 1.73 - 3.73: 60°+, generally vertical        Y++
+	 * Slope 0.57 - 1.73: 30°+, generally diagonal   X++  Y++
+	 * Slope 0.27 - 0.53: 15°+, generally horizontal X++
+	 * Slope 0.00 - 0.27:  0°+, nearly horizontal    X++  Y--
+	 *
+	 * If both axis counts reach their limits, allow free scrolling
+	 * in any direction. Until then, constrain to 90° angles.
+	 */
+
+	slope = (delta->x != 0) ? abs(delta->y / delta->x) : INFINITY;
+
+	if (slope >= 0.57) {
+		if (tp->scroll.y_count < 16)
+			tp->scroll.y_count++;
+	}
+	if (slope < 1.73) {
+		if (tp->scroll.x_count < 16)
+			tp->scroll.x_count++;
+	}
+	if (slope >= 3.73) {
+		if (tp->scroll.x_count > 0)
+			tp->scroll.x_count--;
+	}
+	if (slope < 0.27) {
+		if (tp->scroll.y_count > 0)
+			tp->scroll.y_count--;
+	}
+
+	/* Whenever either axis count reaches 16, set the other axis to
+	 * constrained. If, at the same time, the other axis count has fallen
+	 * below 12, we've probably just switched between straight vertical and
+	 * straight horizontal. In that case we un-constrain the current axis.
+	 */
+	if (tp->scroll.x_count >= 16) {
+		tp->scroll.y_constrained = true;
+		if(tp->scroll.y_count < 12)
+			tp->scroll.x_constrained = false;
+	}
+
+	if (tp->scroll.y_count >= 16) {
+		tp->scroll.x_constrained = true;
+		if(tp->scroll.x_count < 12)
+			tp->scroll.y_constrained = false;
+	}
+
+	/* If both axes' constrained flags are set, then we have detected
+	 * deliberate diagonal movement. Allow delta as-is and enable free
+	 * scrolling for the life of the gesture.
+	 */
+	if (tp->scroll.x_constrained && tp->scroll.y_constrained)
+		return;
+
+	/* Adjust deltas to constrain to vertical / horizontal */
+	if (tp->scroll.x_constrained)
+		delta->x = 0.0;
+	if (tp->scroll.y_constrained)
+		delta->y = 0.0;
 }
 
 static enum tp_gesture_state
@@ -406,6 +489,8 @@ tp_gesture_handle_state_scroll(struct tp_dispatch *tp, uint64_t time)
 
 	if (normalized_is_zero(delta))
 		return GESTURE_STATE_SCROLL;
+
+	tp_gesture_apply_scroll_constraints(tp, &delta);
 
 	tp_gesture_start(tp, time);
 	evdev_post_scroll(tp->device,
