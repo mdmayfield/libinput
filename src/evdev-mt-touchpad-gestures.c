@@ -256,7 +256,9 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	if (tp->scroll.x_constrained && tp->scroll.y_constrained)
 		return;
 
-	/* Trigonometry is expensive. Use slope to determine direction:
+	/* Trigonometry is expensive. Use slope to determine direction,
+	 * and increment/decrement each axis' counter accordingly:
+	 *
 	 * Slope 3.73 - inf.: 75°+, nearly vertical      X--  Y++
 	 * Slope 1.73 - 3.73: 60°+, generally vertical        Y++
 	 * Slope 0.57 - 1.73: 30°+, generally diagonal   X++  Y++
@@ -266,8 +268,6 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	 * If both axis counts reach their limits, allow free scrolling
 	 * in any direction. Until then, constrain to 90° angles.
 	 */
-
-	/* Division by zero can crash the X server, so avoid it */
 	slope = (delta->x != 0) ? abs(delta->y / delta->x) : INFINITY;
 
 	if (slope >= 0.57) {
@@ -290,7 +290,7 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	/* Whenever either axis count reaches 16, set the other axis to
 	 * constrained. If, at the same time, the other axis count has fallen
 	 * below 12, we've probably just switched between straight vertical and
-	 * straight horizontal. In that case we un-constrain the other axis.
+	 * straight horizontal. In that case we un-constrain the current axis.
 	 */
 	if (tp->scroll.x_count >= 16) {
 		tp->scroll.y_constrained = true;
@@ -304,7 +304,7 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 			tp->scroll.y_constrained = false;
 	}
 
-	/* If both axes constrained flags are set, then we have detected
+	/* If both axes' constrained flags are set, then we have detected
 	 * deliberate diagonal movement. Allow delta as-is and enable free
 	 * scrolling for the life of the gesture.
 	 */
