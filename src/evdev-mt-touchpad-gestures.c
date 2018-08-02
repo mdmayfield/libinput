@@ -256,7 +256,7 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 				  struct device_float_coords *rdelta,
 				  uint64_t time)
 {
-	uint64_t elapsed;
+	uint64_t elapsed = 0;
 	struct phys_coords delta_mm,
 			    vector;
 	double vector_decay,
