@@ -84,8 +84,8 @@ tp_get_touches_delta(struct tp_dispatch *tp, bool average)
 static void
 tp_gesture_init_scroll(struct tp_dispatch *tp)
 {
-	tp->scroll.x_constrained = false;
-	tp->scroll.y_constrained = false;
+	tp->scroll.x_active = false;
+	tp->scroll.y_active = false;
 	tp->scroll.x_count = 15;
 	tp->scroll.y_count = 15;
 }
@@ -252,69 +252,20 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 {
 	double slope;
 
-	/* Both constraints == true means free scrolling is enabled */
-	if (tp->scroll.x_constrained && tp->scroll.y_constrained)
+	/* Both active == true means free scrolling is enabled */
+	if (tp->scroll.x_active && tp->scroll.y_active)
 		return;
 
-	/* Trigonometry is expensive. Use slope to determine direction,
-	 * and increment/decrement each axis' counter accordingly:
-	 *
-	 * Slope 3.73 - inf.: 75°+, nearly vertical      X--  Y++
-	 * Slope 1.73 - 3.73: 60°+, generally vertical        Y++
-	 * Slope 0.57 - 1.73: 30°+, generally diagonal   X++  Y++
-	 * Slope 0.27 - 0.53: 15°+, generally horizontal X++
-	 * Slope 0.00 - 0.27:  0°+, nearly horizontal    X++  Y--
-	 *
-	 * If both axis counts reach their limits, allow free scrolling
-	 * in any direction. Until then, constrain to 90° angles.
+
+
+
+	/* If both axes' active flags are set, then we have detected
+	 * deliberate diagonal movement; break the 90° scroll constraint
+	 * for the lifetime of the gesture. Otherwise constrain x or y.
 	 */
-	slope = (delta->x != 0) ? abs(delta->y / delta->x) : INFINITY;
-
-	if (slope >= 0.57) {
-		if (tp->scroll.y_count < 16)
-			tp->scroll.y_count++;
-	}
-	if (slope < 1.73) {
-		if (tp->scroll.x_count < 16)
-			tp->scroll.x_count++;
-	}
-	if (slope >= 3.73) {
-		if (tp->scroll.x_count > 0)
-			tp->scroll.x_count--;
-	}
-	if (slope < 0.27) {
-		if (tp->scroll.y_count > 0)
-			tp->scroll.y_count--;
-	}
-
-	/* Whenever either axis count reaches 16, set the other axis to
-	 * constrained. If, at the same time, the other axis count has fallen
-	 * below 12, we've probably just switched between straight vertical and
-	 * straight horizontal. In that case we un-constrain the current axis.
-	 */
-	if (tp->scroll.x_count >= 16) {
-		tp->scroll.y_constrained = true;
-		if(tp->scroll.y_count < 12)
-			tp->scroll.x_constrained = false;
-	}
-
-	if (tp->scroll.y_count >= 16) {
-		tp->scroll.x_constrained = true;
-		if(tp->scroll.x_count < 12)
-			tp->scroll.y_constrained = false;
-	}
-
-	/* If both axes' constrained flags are set, then we have detected
-	 * deliberate diagonal movement. Allow delta as-is and enable free
-	 * scrolling for the life of the gesture.
-	 */
-	if (tp->scroll.x_constrained && tp->scroll.y_constrained)
-		return;
-
-	/* Adjust deltas to constrain to vertical / horizontal */
-	if (tp->scroll.x_constrained)
+	if (!tp->scroll.x_active && tp->scroll.y_active)
 		delta->x = 0.0;
-	if (tp->scroll.y_constrained)
+	if (tp->scroll.x_active && !tp->scroll.y_active)
 		delta->y = 0.0;
 }
 
