@@ -360,9 +360,10 @@ struct tp_dispatch {
 		int32_t bottom_edge;		/* in device coordinates */
 		bool active_horiz;
 		bool active_vert;
-		int64_t duration_horiz;
-		int64_t duration_vert;
-		int64_t time_prev;
+		struct phys_coords vector;
+		uint64_t time_prev,
+			  duration_horiz,
+			  duration_vert;
 	} scroll;
 
 	enum touchpad_event queued;
