@@ -93,6 +93,7 @@ tp_gesture_init_scroll(struct tp_dispatch *tp)
 	tp->scroll.time_prev = 0;
 	tp->scroll.duration_horiz = 0;
 	tp->scroll.duration_vert = 0;
+	printf("Initialized scroll\n");
 }
 
 static inline struct device_float_coords
@@ -256,18 +257,19 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 				  struct device_float_coords *rdelta,
 				  uint64_t time)
 {
-	uint32_t dir = UNDEFINED_DIRECTION;
 	uint64_t elapsed;
 	struct phys_coords delta_mm,
 			    vector;
-	double vector_decay;
+	double vector_decay,
+		vector_length,
+		slope;
 
-	static const uint64_t ACTIVE_THRESHOLD = 300 * 1000, /* ms2us */
+	static const uint64_t ACTIVE_THRESHOLD = 100 * 1000, /* ms2us */
 				INACTIVE_THRESHOLD = 50 * 1000,
-				EVENT_TIMEOUT = 200 * 1000;
+				EVENT_TIMEOUT = 100 * 1000;
 
-	static const uint32_t HORIZ = (E | W),
-				VERT = (N | S);
+	static const double INITIAL_VERT_THRESHOLD = 0.10,
+			      INITIAL_HORIZ_THRESHOLD = 0.15;
 
 	/* Both active == true means free scrolling is enabled */
 	if (tp->scroll.active_horiz && tp->scroll.active_vert)
@@ -277,82 +279,86 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	if (tp->scroll.time_prev != 0)
 		elapsed = time - tp->scroll.time_prev;
 	if (elapsed > EVENT_TIMEOUT)
-		elapsed = EVENT_TIMEOUT;	
+		elapsed = 0;	
 	tp->scroll.time_prev = time;
 
 	/* Delta since last movement event in mm */
 	delta_mm = tp_phys_delta(tp, *rdelta);
 
-	if (delta_mm.x == 0.0 && delta_mm.y == 0.0)
-		return;
-
 	/* Old vector data "fades" over time. */
-	vector_decay = (EVENT_TIMEOUT - elapsed) /
-		       (double)EVENT_TIMEOUT;
+	if (elapsed > 0)
+		vector_decay = (EVENT_TIMEOUT - elapsed) /
+			       (double)EVENT_TIMEOUT;
+	else
+		vector_decay = 0.0;
 
 	/* Calculate running vector from current delta and older data */
 	vector.x = (tp->scroll.vector.x * vector_decay) + delta_mm.x;
 	vector.y = (tp->scroll.vector.y * vector_decay) + delta_mm.y;
+	vector_length = hypot(vector.x, vector.y);
+	tp->scroll.vector.x = vector.x;
+	tp->scroll.vector.y = vector.y;
 
-	dir = phys_get_direction(vector);
+printf("vector=(%4.2f, %4.2f) length=%4.2f ", vector.x, vector.y, vector_length);
 
-	printf("N/E\\S/W\\\n");
-	for(int i=0; i<=7; i++)
-		printf((dir>>i & 1) ? "X" : ".");
-	printf("  ");
-
-	/* The first valid movement determines active axis or axes */
+	/* If this is the first movement, determine active axes */
 	if (!tp->scroll.active_horiz && !tp->scroll.active_vert) {
-		tp->scroll.active_horiz = ((dir & HORIZ) &&
-					   dir != UNDEFINED_DIRECTION);
-		tp->scroll.active_vert = ((dir & VERT) &&
-					   dir != UNDEFINED_DIRECTION);
+		tp->scroll.active_horiz = (vector.x > INITIAL_HORIZ_THRESHOLD);
+		tp->scroll.active_vert = (vector.y > INITIAL_VERT_THRESHOLD);
 	}
 
-	/* We don't care as much about speed or distance as we do about
+	/* We care somewhat about distance and speed, but more about
 	 * consistency of direction over time. Keep track of the time spent
-	 * moving along each axis. If one axis is active, time spent NOT
-	 * moving in the other axis is subtracted, allowing a switch of
+	 * primarily along each axis. If one axis is active, time spent NOT
+	 * moving much in the other axis is subtracted, allowing a switch of
 	 * axes in a single scroll + ability to "break out" and go diagonal.
+	 *
+	 * Slope 3.73 - inf.: 75°+, nearly vertical
+	 * Slope 1.73 - 3.73: 60°+, generally vertical
+	 * Slope 0.57 - 1.73: 30°+, generally diagonal
+	 * Slope 0.27 - 0.57: 15°+, generally horizontal
+	 * Slope 0.00 - 0.27:  0°+, nearly horizontal 
 	 */
 
-	if (tp->scroll.active_vert) {
-		if ((dir & VERT) && dir != UNDEFINED_DIRECTION) {
+	slope = (vector.x != 0) ? fabs(vector.y / vector.x) : INFINITY;
+printf("slope=%4.2f ", slope);
+
+
+	/* If the movement is too small, we can't be confident of direction */
+	if (vector_length > 0.15) {
+		if (slope >= 0.57) {
 			tp->scroll.duration_vert += elapsed;
-			if (dir & HORIZ)
-				tp->scroll.duration_horiz += elapsed;
-			else
+			if (tp->scroll.duration_vert > ACTIVE_THRESHOLD)
+				tp->scroll.duration_vert = ACTIVE_THRESHOLD;
+			if (slope >= 3.73)
 				tp->scroll.duration_horiz =
 				(tp->scroll.duration_horiz > elapsed) ?
 				tp->scroll.duration_horiz - elapsed : 0;
-		}
-	}
-
-	if (tp->scroll.active_horiz) {
-		if ((dir & HORIZ) && dir != UNDEFINED_DIRECTION) {
+			}
+		if (slope < 1.73) {
 			tp->scroll.duration_horiz += elapsed;
-			if (dir & VERT)
-				tp->scroll.duration_vert += elapsed;
-			else
+			if (tp->scroll.duration_horiz > ACTIVE_THRESHOLD)
+				tp->scroll.duration_horiz = ACTIVE_THRESHOLD;
+			if (slope < 0.27)
 				tp->scroll.duration_vert =
 				(tp->scroll.duration_vert > elapsed) ?
 				tp->scroll.duration_vert - elapsed : 0;
-		}
+			}
 	}
 
 
-printf("vert %li horiz %li elapsed %li\n", tp->scroll.duration_vert, tp->scroll.duration_horiz, elapsed);
-
-	if (tp->scroll.duration_horiz > ACTIVE_THRESHOLD) {
+	if (tp->scroll.duration_horiz == ACTIVE_THRESHOLD) {
 		tp->scroll.active_horiz = true;
-		if (tp->scroll.duration_horiz < INACTIVE_THRESHOLD)
-			tp->scroll.active_horiz = false;
-	}
-	if (tp->scroll.duration_vert > ACTIVE_THRESHOLD) {
-		tp->scroll.active_vert = true;
 		if (tp->scroll.duration_vert < INACTIVE_THRESHOLD)
 			tp->scroll.active_vert = false;
 	}
+	if (tp->scroll.duration_vert == ACTIVE_THRESHOLD) {
+		tp->scroll.active_vert = true;
+		if (tp->scroll.duration_horiz < INACTIVE_THRESHOLD)
+			tp->scroll.active_horiz = false;
+	}
+
+printf("dur_h=%04lims dur_v=%04lims\n", tp->scroll.duration_horiz / 1000, tp->scroll.duration_vert / 1000);
 
 	/* If only one axis is active, constrain motion accordingly. If both
 	 * are set, we've detected deliberate diagonal movement; enable free
