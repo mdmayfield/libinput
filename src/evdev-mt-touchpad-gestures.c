@@ -81,13 +81,16 @@ tp_get_touches_delta(struct tp_dispatch *tp, bool average)
 }
 
 
+
+
 static void
 tp_gesture_init_scroll(struct tp_dispatch *tp)
 {
-	tp->scroll.x_active = false;
-	tp->scroll.y_active = false;
-	tp->scroll.x_count = 15;
-	tp->scroll.y_count = 15;
+	tp->scroll.active_horiz = false;
+	tp->scroll.active_vert = false;
+	tp->scroll.duration_horiz = 0;
+	tp->scroll.duration_vert = 0;
+	tp->scroll.time_prev = 0;
 }
 
 static inline struct device_float_coords
@@ -248,13 +251,31 @@ tp_gesture_set_scroll_buildup(struct tp_dispatch *tp)
 
 static void
 tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
-				  struct normalized_coords *delta)
+				  struct device_float_coords *rdelta,
+				  uint64_t time)
 {
-	double slope;
-
+	uint32_t dir,
+		  vert  = N | S,
+		  horiz = E | W,
+		  diag  = NW | NE | SE | SW;
+	struct phys_coords mm;
+	
 	/* Both active == true means free scrolling is enabled */
-	if (tp->scroll.x_active && tp->scroll.y_active)
+	if (tp->scroll.active_horiz && tp->scroll.active_vert)
 		return;
+
+	mm = tp_phys_delta(tp, *rdelta);
+	dir = phys_get_direction(mm);
+
+	/* Both inactive == haven't determined axis yet: first valid direction
+	 * sets it. Scroll buildup and move_threshold improve accuracy.
+	 */
+	if (!tp->scroll.active_horiz && !tp->scroll.active_vert &&
+	    dir != UNDEFINED_DIRECTION) {
+		tp->scroll.time_prev = time;
+		tp->scroll.active_horiz = (dir & horiz);
+		tp->scroll.active_vert = (dir & vert);
+	}
 
 
 
@@ -263,10 +284,10 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	 * deliberate diagonal movement; break the 90° scroll constraint
 	 * for the lifetime of the gesture. Otherwise constrain x or y.
 	 */
-	if (!tp->scroll.x_active && tp->scroll.y_active)
-		delta->x = 0.0;
-	if (tp->scroll.x_active && !tp->scroll.y_active)
-		delta->y = 0.0;
+	if (!tp->scroll.active_horiz && tp->scroll.active_vert)
+		rdelta->x = 0.0;
+	if (tp->scroll.active_horiz && !tp->scroll.active_vert)
+		rdelta->y = 0.0;
 }
 
 static enum tp_gesture_state
@@ -434,13 +455,13 @@ tp_gesture_handle_state_scroll(struct tp_dispatch *tp, uint64_t time)
 
 	raw = tp_get_average_touches_delta(tp);
 
+	tp_gesture_apply_scroll_constraints(tp, &raw, time);
+
 	/* scroll is not accelerated */
 	delta = tp_filter_motion_unaccelerated(tp, &raw, time);
 
 	if (normalized_is_zero(delta))
 		return GESTURE_STATE_SCROLL;
-
-	tp_gesture_apply_scroll_constraints(tp, &delta);
 
 	tp_gesture_start(tp, time);
 	evdev_post_scroll(tp->device,
