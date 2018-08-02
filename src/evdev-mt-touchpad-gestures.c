@@ -271,6 +271,9 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	static const double INITIAL_VERT_THRESHOLD = 0.10,
 			      INITIAL_HORIZ_THRESHOLD = 0.15;
 
+    if (!tp->gesture.started)
+        return;
+
 	/* Both active == true means free scrolling is enabled */
 	if (tp->scroll.active_horiz && tp->scroll.active_vert)
 		return;
@@ -292,6 +295,8 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	else
 		vector_decay = 0.0;
 
+printf("t=%04li ", elapsed);
+
 	/* Calculate running vector from current delta and older data */
 	vector.x = (tp->scroll.vector.x * vector_decay) + delta_mm.x;
 	vector.y = (tp->scroll.vector.y * vector_decay) + delta_mm.y;
@@ -299,7 +304,7 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	tp->scroll.vector.x = vector.x;
 	tp->scroll.vector.y = vector.y;
 
-printf("vector=(%4.2f, %4.2f) length=%4.2f ", vector.x, vector.y, vector_length);
+printf("v=(%4.2f, %4.2f) l=%4.2f ", vector.x, vector.y, vector_length);
 
 	/* If this is the first movement, determine active axes */
 	if (!tp->scroll.active_horiz && !tp->scroll.active_vert) {
@@ -321,13 +326,13 @@ printf("vector=(%4.2f, %4.2f) length=%4.2f ", vector.x, vector.y, vector_length)
 	 */
 
 	slope = (vector.x != 0) ? fabs(vector.y / vector.x) : INFINITY;
-printf("slope=%4.2f ", slope);
-
+printf("sl=%4.2f ", slope);
 
 	/* If the movement is too small, we can't be confident of direction */
 	if (vector_length > 0.15) {
 		if (slope >= 0.57) {
 			tp->scroll.duration_vert += elapsed;
+            printf("%li", tp->scroll.duration_vert);
 			if (tp->scroll.duration_vert > ACTIVE_THRESHOLD)
 				tp->scroll.duration_vert = ACTIVE_THRESHOLD;
 			if (slope >= 3.73)
@@ -346,7 +351,6 @@ printf("slope=%4.2f ", slope);
 			}
 	}
 
-
 	if (tp->scroll.duration_horiz == ACTIVE_THRESHOLD) {
 		tp->scroll.active_horiz = true;
 		if (tp->scroll.duration_vert < INACTIVE_THRESHOLD)
@@ -357,8 +361,6 @@ printf("slope=%4.2f ", slope);
 		if (tp->scroll.duration_horiz < INACTIVE_THRESHOLD)
 			tp->scroll.active_horiz = false;
 	}
-
-printf("dur_h=%04lims dur_v=%04lims\n", tp->scroll.duration_horiz / 1000, tp->scroll.duration_vert / 1000);
 
 	/* If only one axis is active, constrain motion accordingly. If both
 	 * are set, we've detected deliberate diagonal movement; enable free
@@ -373,6 +375,7 @@ printf("dur_h=%04lims dur_v=%04lims\n", tp->scroll.duration_horiz / 1000, tp->sc
 static enum tp_gesture_state
 tp_gesture_handle_state_none(struct tp_dispatch *tp, uint64_t time)
 {
+printf("In tp_gesture_handle_state_none\n");
 	struct tp_touch *first, *second;
 	struct tp_touch *touches[4];
 	unsigned int ntouches;
