@@ -275,8 +275,8 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 		      INITIAL_HORIZ_THRESHOLD = 0.15;
 
 	/* Both active == true means free scrolling is enabled */
-	if (tp->scroll.active.h && tp->scroll.active.v)
-		return;
+//	if (tp->scroll.active.h && tp->scroll.active.v)
+//		return;
 
 	/* Determine time delta since last movement event */
 	if (tp->scroll.time_prev != 0)
@@ -377,6 +377,10 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 		tp->scroll.active.v = true;
 		tp->scroll.active.h = true;
 	}
+
+// For fun make the delta the vector
+rdelta->x = vector.x * (fabs(0.01 * vector.x) + 0.05) * tp->device->abs.absinfo_x->resolution;
+rdelta->y = vector.y * (fabs(0.01 * vector.y) + 0.05) * tp->device->abs.absinfo_y->resolution;
 
 	/* If only one axis is active, constrain motion accordingly. If both
 	 * are set, we've detected deliberate diagonal movement; enable free
