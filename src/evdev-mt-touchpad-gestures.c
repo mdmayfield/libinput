@@ -123,7 +123,7 @@ tp_gesture_start(struct tp_dispatch *tp, uint64_t time)
 				       __func__);
 		break;
 	case GESTURE_STATE_SCROLL:
-		tp_gesture_init_scroll(tp);
+		/* NOP */
 		break;
 	case GESTURE_STATE_PINCH:
 		gesture_notify_pinch(&tp->device->base, time,
@@ -243,12 +243,13 @@ tp_gesture_set_scroll_buildup(struct tp_dispatch *tp)
 	struct device_float_coords average;
 	struct tp_touch *first = tp->gesture.touches[0],
 			*second = tp->gesture.touches[1];
-
 	d0 = device_delta(first->point, first->gesture.initial);
 	d1 = device_delta(second->point, second->gesture.initial);
 
 	average = device_float_average(d0, d1);
 	tp->device->scroll.buildup = tp_normalize_delta(tp, average);
+
+	tp_gesture_init_scroll(tp);
 }
 
 static void
@@ -284,19 +285,29 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	/* Delta since last movement event in mm */
 	delta_mm = tp_phys_delta(tp, *rdelta);
 
-	/* Old vector data "fades" over time. */
-	if (elapsed > 0)
-		vector_decay = (EVENT_TIMEOUT - elapsed) /
-			       (double)EVENT_TIMEOUT;
-	else
+	/* Old vector data "fades" over time. This is a two-part linear
+	 * approximation of an exponential function - for example, for
+	 * EVENT_TIMEOUT of 100, vector_decay = (0.97)^elapsed. This linear
+	 * approximation allows easier tweaking of EVENT_TIMEOUT and is faster.
+	 */
+	if (elapsed > 0) {
+		double recent,
+			later;
+		recent = ((EVENT_TIMEOUT / 2.0) - elapsed) /
+			 (EVENT_TIMEOUT / 2.0);
+		later = (EVENT_TIMEOUT - elapsed) /
+			(double)(EVENT_TIMEOUT);
+
+		vector_decay = elapsed <= (0.33 * EVENT_TIMEOUT) ?
+			       recent : later;
+	} else
 		vector_decay = 0.0;
 
 	/* Calculate windowed vector from delta + weighted historic data */
 	vector.x = (tp->scroll.vector.x * vector_decay) + delta_mm.x;
 	vector.y = (tp->scroll.vector.y * vector_decay) + delta_mm.y;
 	vector_length = hypot(vector.x, vector.y);
-	tp->scroll.vector.x = vector.x;
-	tp->scroll.vector.y = vector.y;
+	tp->scroll.vector = vector;
 
 	/* If we haven't already, determine active axes */
 	if (!tp->scroll.active_horiz && !tp->scroll.active_vert) {
