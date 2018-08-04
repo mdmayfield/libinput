@@ -268,7 +268,7 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 			INACTIVE_THRESHOLD = ms2us(50),
 			EVENT_TIMEOUT = ms2us(100);
 
-	/* Initial thresholds to lock one axis, in mm per EVENT_TIMEOUT.
+	/* Speed thresholds to lock one axis, in mm per EVENT_TIMEOUT.
 	 * These are only used at the very start of a scroll, so they need
 	 * to be very short to avoid too much initial movement in the wrong
 	 * axis, yet long enough to accurately pick up the direction.
@@ -301,8 +301,7 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 		recent = ((EVENT_TIMEOUT / 2.0) - tdelta) /
 			 (EVENT_TIMEOUT / 2.0);
 		later = (EVENT_TIMEOUT - tdelta) /
-			(double)(EVENT_TIMEOUT);
-
+			(EVENT_TIMEOUT * 2.0);
 		vector_decay = tdelta <= (0.33 * EVENT_TIMEOUT) ?
 			       recent : later;
 	} else
