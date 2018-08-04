@@ -86,13 +86,13 @@ tp_get_touches_delta(struct tp_dispatch *tp, bool average)
 static void
 tp_gesture_init_scroll(struct tp_dispatch *tp)
 {
-	tp->scroll.active_horiz = false;
-	tp->scroll.active_vert = false;
-	tp->scroll.vector.x = 0.0;
-	tp->scroll.vector.y = 0.0;
+	struct phys_coords zero = {0.0, 0.0};
+	tp->scroll.active.h = false;
+	tp->scroll.active.v = false;
+	tp->scroll.duration.h = 0;
+	tp->scroll.duration.v = 0;
+	tp->scroll.vector = zero;
 	tp->scroll.time_prev = 0;
-	tp->scroll.duration_horiz = 0;
-	tp->scroll.duration_vert = 0;
 }
 
 static inline struct device_float_coords
@@ -277,7 +277,7 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 		      INITIAL_HORIZ_THRESHOLD = 0.15;
 
 	/* Both active == true means free scrolling is enabled */
-	if (tp->scroll.active_horiz && tp->scroll.active_vert)
+	if (tp->scroll.active.h && tp->scroll.active.v)
 		return;
 
 	/* Determine time delta since last movement event */
@@ -314,9 +314,9 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	tp->scroll.vector = vector;
 
 	/* If we haven't already, determine active axes */
-	if (!tp->scroll.active_horiz && !tp->scroll.active_vert) {
-		tp->scroll.active_horiz = (vector.x > INITIAL_HORIZ_THRESHOLD);
-		tp->scroll.active_vert = (vector.y > INITIAL_VERT_THRESHOLD);
+	if (!tp->scroll.active.h && !tp->scroll.active.v) {
+		tp->scroll.active.h = (vector.x > INITIAL_HORIZ_THRESHOLD);
+		tp->scroll.active.v = (vector.y > INITIAL_VERT_THRESHOLD);
 	}
 
 	/* We care somewhat about distance and speed, but more about
@@ -339,54 +339,54 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	const double MIN_VECTOR = 0.25;
 
 	if (slope >= DEGREE_30 && vector_length > MIN_VECTOR) {
-		tp->scroll.duration_vert += tdelta;
-		if (tp->scroll.duration_vert > ACTIVE_THRESHOLD)
-			tp->scroll.duration_vert = ACTIVE_THRESHOLD;
+		tp->scroll.duration.v += tdelta;
+		if (tp->scroll.duration.v > ACTIVE_THRESHOLD)
+			tp->scroll.duration.v = ACTIVE_THRESHOLD;
 		if (slope >= DEGREE_75) {
-			if (tp->scroll.duration_horiz > tdelta)
-				tp->scroll.duration_horiz -= tdelta;
+			if (tp->scroll.duration.h > tdelta)
+				tp->scroll.duration.h -= tdelta;
 			else
-				tp->scroll.duration_horiz = 0;
+				tp->scroll.duration.h = 0;
 		}
 	}
 	if (slope < DEGREE_60  && vector_length > MIN_VECTOR) {
-		tp->scroll.duration_horiz += tdelta;
-		if (tp->scroll.duration_horiz > ACTIVE_THRESHOLD)
-			tp->scroll.duration_horiz = ACTIVE_THRESHOLD;
+		tp->scroll.duration.h += tdelta;
+		if (tp->scroll.duration.h > ACTIVE_THRESHOLD)
+			tp->scroll.duration.h = ACTIVE_THRESHOLD;
 		if (slope < DEGREE_15) {
-			if (tp->scroll.duration_vert > tdelta)
-				tp->scroll.duration_vert -= tdelta;
+			if (tp->scroll.duration.v > tdelta)
+				tp->scroll.duration.v -= tdelta;
 			else
-				tp->scroll.duration_vert = 0;
+				tp->scroll.duration.v = 0;
 		}
 	}
 
-	if (tp->scroll.duration_horiz == ACTIVE_THRESHOLD) {
-		tp->scroll.active_horiz = true;
-		if (tp->scroll.duration_vert < INACTIVE_THRESHOLD)
-			tp->scroll.active_vert = false;
+	if (tp->scroll.duration.h == ACTIVE_THRESHOLD) {
+		tp->scroll.active.h = true;
+		if (tp->scroll.duration.v < INACTIVE_THRESHOLD)
+			tp->scroll.active.v = false;
 	}
-	if (tp->scroll.duration_vert == ACTIVE_THRESHOLD) {
-		tp->scroll.active_vert = true;
-		if (tp->scroll.duration_horiz < INACTIVE_THRESHOLD)
-			tp->scroll.active_horiz = false;
+	if (tp->scroll.duration.v == ACTIVE_THRESHOLD) {
+		tp->scroll.active.v = true;
+		if (tp->scroll.duration.h < INACTIVE_THRESHOLD)
+			tp->scroll.active.h = false;
 	}
 
 	/* If vector is big enough in a diagonal direction, always unlock
 	 * both axes regardless of thresholds
 	 */
 	if (vector_length > 5.0 && slope < 1.73 && slope >= 0.57) {
-		tp->scroll.active_vert = true;
-		tp->scroll.active_horiz = true;
+		tp->scroll.active.v = true;
+		tp->scroll.active.h = true;
 	}
 
 	/* If only one axis is active, constrain motion accordingly. If both
 	 * are set, we've detected deliberate diagonal movement; enable free
 	 * scrolling for the life of the gesture.
 	 */
-	if (!tp->scroll.active_horiz && tp->scroll.active_vert)
+	if (!tp->scroll.active.h && tp->scroll.active.v)
 		rdelta->x = 0.0;
-	if (tp->scroll.active_horiz && !tp->scroll.active_vert)
+	if (tp->scroll.active.h && !tp->scroll.active.v)
 		rdelta->y = 0.0;
 }
 
