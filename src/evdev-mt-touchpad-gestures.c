@@ -268,6 +268,11 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 			INACTIVE_THRESHOLD = ms2us(50),
 			EVENT_TIMEOUT = ms2us(100);
 
+	/* Initial thresholds to lock one axis, in mm per EVENT_TIMEOUT.
+	 * These are only used at the very start of a scroll, so they need
+	 * to be very short to avoid too much initial movement in the wrong
+	 * axis, yet long enough to accurately pick up the direction.
+	 */
 	const double INITIAL_VERT_THRESHOLD = 0.10,
 		      INITIAL_HORIZ_THRESHOLD = 0.15;
 
@@ -279,7 +284,7 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	if (tp->scroll.time_prev != 0)
 		tdelta = time - tp->scroll.time_prev;
 	if (tdelta > EVENT_TIMEOUT)
-		tdelta = 0;	
+		tdelta = 0;
 	tp->scroll.time_prev = time;
 
 	/* Delta since last movement event in mm */
@@ -321,30 +326,32 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	 * moving much in the other axis is subtracted, allowing a switch of
 	 * axes in a single scroll + ability to "break out" and go diagonal.
 	 *
-	 * Slope 3.73 - inf.: 75°+, nearly vertical
-	 * Slope 1.73 - 3.73: 60°+, generally vertical
-	 * Slope 0.57 - 1.73: 30°+, generally diagonal
-	 * Slope 0.27 - 0.57: 15°+, generally horizontal
-	 * Slope 0.00 - 0.27:  0°+, nearly horizontal 
+	 * Slope to degree conversions (infinity = 90°, 0 = 0°):
 	 */
+	const double DEGREE_75 = 3.73;
+	const double DEGREE_60 = 1.73;
+	const double DEGREE_30 = 0.57;
+	const double DEGREE_15 = 0.27;
 	slope = (vector.x != 0) ? fabs(vector.y / vector.x) : INFINITY;
 
-	/* Ensure vector is large enough to be confident of direction */
-	if (vector_length > 0.15) {
-		if (slope >= 0.57) {
+	/* Ensure vector is big enough (in mm per EVENT_TIMEOUT) to be confident
+	 * of direction. Larger = harder to enable diagonal/free scrolling.
+	 */
+	if (vector_length > 0.25) {
+		if (slope >= DEGREE_30) {
 			tp->scroll.duration_vert += tdelta;
 			if (tp->scroll.duration_vert > ACTIVE_THRESHOLD)
 				tp->scroll.duration_vert = ACTIVE_THRESHOLD;
-			if (slope >= 3.73)
+			if (slope >= DEGREE_75)
 				tp->scroll.duration_horiz =
 				(tp->scroll.duration_horiz > tdelta) ?
 				tp->scroll.duration_horiz - tdelta : 0;
 			}
-		if (slope < 1.73) {
+		if (slope < DEGREE_60) {
 			tp->scroll.duration_horiz += tdelta;
 			if (tp->scroll.duration_horiz > ACTIVE_THRESHOLD)
 				tp->scroll.duration_horiz = ACTIVE_THRESHOLD;
-			if (slope < 0.27)
+			if (slope < DEGREE_15)
 				tp->scroll.duration_vert =
 				(tp->scroll.duration_vert > tdelta) ?
 				tp->scroll.duration_vert - tdelta : 0;
