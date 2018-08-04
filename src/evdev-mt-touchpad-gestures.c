@@ -93,6 +93,7 @@ tp_gesture_init_scroll(struct tp_dispatch *tp)
 	tp->scroll.duration.v = 0;
 	tp->scroll.vector = zero;
 	tp->scroll.time_prev = 0;
+    printf("scroll init\n");
 }
 
 static inline struct device_float_coords
@@ -250,6 +251,7 @@ tp_gesture_set_scroll_buildup(struct tp_dispatch *tp)
 	average = device_float_average(d0, d1);
 	tp->device->scroll.buildup = tp_normalize_delta(tp, average);
 
+    printf("Set scroll buildup\n");
 	tp_gesture_init_scroll(tp);
 }
 
@@ -305,8 +307,11 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 			(EVENT_TIMEOUT * 2.0);
 		vector_decay = tdelta <= (0.33 * EVENT_TIMEOUT) ?
 			       recent : later;
+        printf("Recent %f, later %f, ", recent, later);
 	} else
 		vector_decay = 0.0;
+
+    printf("vector_decay %f\n", vector_decay);
 
 	/* Calculate windowed vector from delta + weighted historic data */
 	vector.x = (tp->scroll.vector.x * vector_decay) + delta_mm.x;
@@ -361,7 +366,7 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 				tp->scroll.duration.v = 0;
 		}
 	}
-
+printf("v=(%2.4f, %2.4f) t=(%li, %li)\n",vector.x, vector.y, tp->scroll.duration.h, tp->scroll.duration.v);
 	if (tp->scroll.duration.h == ACTIVE_THRESHOLD) {
 		tp->scroll.active.h = true;
 		if (tp->scroll.duration.v < INACTIVE_THRESHOLD)
@@ -379,6 +384,7 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	if (vector_length > 5.0 && slope < 1.73 && slope >= 0.57) {
 		tp->scroll.active.v = true;
 		tp->scroll.active.h = true;
+        printf("Diagonal speed break\n");
 	}
 
 	/* If only one axis is active, constrain motion accordingly. If both
