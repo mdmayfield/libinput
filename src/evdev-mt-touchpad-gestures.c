@@ -123,7 +123,7 @@ tp_gesture_start(struct tp_dispatch *tp, uint64_t time)
 				       __func__);
 		break;
 	case GESTURE_STATE_SCROLL:
-		/* NOP */
+		tp_gesture_init_scroll(tp);
 		break;
 	case GESTURE_STATE_PINCH:
 		gesture_notify_pinch(&tp->device->base, time,
@@ -248,8 +248,6 @@ tp_gesture_set_scroll_buildup(struct tp_dispatch *tp)
 
 	average = device_float_average(d0, d1);
 	tp->device->scroll.buildup = tp_normalize_delta(tp, average);
-
-	tp_gesture_init_scroll(tp);
 }
 
 static void
