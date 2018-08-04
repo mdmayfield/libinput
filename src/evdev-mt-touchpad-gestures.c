@@ -257,29 +257,29 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 				  struct device_float_coords *rdelta,
 				  uint64_t time)
 {
-	uint64_t elapsed = 0;
+	uint64_t tdelta = 0;
 	struct phys_coords delta_mm,
 			    vector;
 	double vector_decay,
 		vector_length,
 		slope;
 
-	static const uint64_t ACTIVE_THRESHOLD = 100 * 1000, /* ms2us */
-				INACTIVE_THRESHOLD = 50 * 1000,
-				EVENT_TIMEOUT = 100 * 1000;
+	const uint64_t ACTIVE_THRESHOLD = ms2us(100),
+			INACTIVE_THRESHOLD = ms2us(50),
+			EVENT_TIMEOUT = ms2us(100);
 
-	static const double INITIAL_VERT_THRESHOLD = 0.10,
-			      INITIAL_HORIZ_THRESHOLD = 0.15;
+	const double INITIAL_VERT_THRESHOLD = 0.10,
+		      INITIAL_HORIZ_THRESHOLD = 0.15;
 
 	/* Both active == true means free scrolling is enabled */
 	if (tp->scroll.active_horiz && tp->scroll.active_vert)
 		return;
 
-	/* Determine time elapsed since last movement event */
+	/* Determine time delta since last movement event */
 	if (tp->scroll.time_prev != 0)
-		elapsed = time - tp->scroll.time_prev;
-	if (elapsed > EVENT_TIMEOUT)
-		elapsed = 0;	
+		tdelta = time - tp->scroll.time_prev;
+	if (tdelta > EVENT_TIMEOUT)
+		tdelta = 0;	
 	tp->scroll.time_prev = time;
 
 	/* Delta since last movement event in mm */
@@ -287,18 +287,18 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 
 	/* Old vector data "fades" over time. This is a two-part linear
 	 * approximation of an exponential function - for example, for
-	 * EVENT_TIMEOUT of 100, vector_decay = (0.97)^elapsed. This linear
+	 * EVENT_TIMEOUT of 100, vector_decay = (0.97)^tdelta. This linear
 	 * approximation allows easier tweaking of EVENT_TIMEOUT and is faster.
 	 */
-	if (elapsed > 0) {
+	if (tdelta > 0) {
 		double recent,
 			later;
-		recent = ((EVENT_TIMEOUT / 2.0) - elapsed) /
+		recent = ((EVENT_TIMEOUT / 2.0) - tdelta) /
 			 (EVENT_TIMEOUT / 2.0);
-		later = (EVENT_TIMEOUT - elapsed) /
+		later = (EVENT_TIMEOUT - tdelta) /
 			(double)(EVENT_TIMEOUT);
 
-		vector_decay = elapsed <= (0.33 * EVENT_TIMEOUT) ?
+		vector_decay = tdelta <= (0.33 * EVENT_TIMEOUT) ?
 			       recent : later;
 	} else
 		vector_decay = 0.0;
@@ -332,22 +332,22 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	/* Ensure vector is large enough to be confident of direction */
 	if (vector_length > 0.15) {
 		if (slope >= 0.57) {
-			tp->scroll.duration_vert += elapsed;
+			tp->scroll.duration_vert += tdelta;
 			if (tp->scroll.duration_vert > ACTIVE_THRESHOLD)
 				tp->scroll.duration_vert = ACTIVE_THRESHOLD;
 			if (slope >= 3.73)
 				tp->scroll.duration_horiz =
-				(tp->scroll.duration_horiz > elapsed) ?
-				tp->scroll.duration_horiz - elapsed : 0;
+				(tp->scroll.duration_horiz > tdelta) ?
+				tp->scroll.duration_horiz - tdelta : 0;
 			}
 		if (slope < 1.73) {
-			tp->scroll.duration_horiz += elapsed;
+			tp->scroll.duration_horiz += tdelta;
 			if (tp->scroll.duration_horiz > ACTIVE_THRESHOLD)
 				tp->scroll.duration_horiz = ACTIVE_THRESHOLD;
 			if (slope < 0.27)
 				tp->scroll.duration_vert =
-				(tp->scroll.duration_vert > elapsed) ?
-				tp->scroll.duration_vert - elapsed : 0;
+				(tp->scroll.duration_vert > tdelta) ?
+				tp->scroll.duration_vert - tdelta : 0;
 			}
 	}
 
