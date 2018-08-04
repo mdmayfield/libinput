@@ -337,25 +337,29 @@ tp_gesture_apply_scroll_constraints(struct tp_dispatch *tp,
 	/* Ensure vector is big enough (in mm per EVENT_TIMEOUT) to be confident
 	 * of direction. Larger = harder to enable diagonal/free scrolling.
 	 */
-	if (vector_length > 0.25) {
-		if (slope >= DEGREE_30) {
-			tp->scroll.duration_vert += tdelta;
-			if (tp->scroll.duration_vert > ACTIVE_THRESHOLD)
-				tp->scroll.duration_vert = ACTIVE_THRESHOLD;
-			if (slope >= DEGREE_75)
-				tp->scroll.duration_horiz =
-				(tp->scroll.duration_horiz > tdelta) ?
-				tp->scroll.duration_horiz - tdelta : 0;
-			}
-		if (slope < DEGREE_60) {
-			tp->scroll.duration_horiz += tdelta;
-			if (tp->scroll.duration_horiz > ACTIVE_THRESHOLD)
-				tp->scroll.duration_horiz = ACTIVE_THRESHOLD;
-			if (slope < DEGREE_15)
-				tp->scroll.duration_vert =
-				(tp->scroll.duration_vert > tdelta) ?
-				tp->scroll.duration_vert - tdelta : 0;
-			}
+	const double MIN_VECTOR = 0.25;
+
+	if (slope >= DEGREE_30 && vector_length > MIN_VECTOR) {
+		tp->scroll.duration_vert += tdelta;
+		if (tp->scroll.duration_vert > ACTIVE_THRESHOLD)
+			tp->scroll.duration_vert = ACTIVE_THRESHOLD;
+		if (slope >= DEGREE_75) {
+			if (tp->scroll.duration_horiz > tdelta)
+				tp->scroll.duration_horiz -= tdelta;
+			else
+				tp->scroll.duration_horiz = 0;
+		}
+	}
+	if (slope < DEGREE_60  && vector_length > MIN_VECTOR) {
+		tp->scroll.duration_horiz += tdelta;
+		if (tp->scroll.duration_horiz > ACTIVE_THRESHOLD)
+			tp->scroll.duration_horiz = ACTIVE_THRESHOLD;
+		if (slope < DEGREE_15) {
+			if (tp->scroll.duration_vert > tdelta)
+				tp->scroll.duration_vert -= tdelta;
+			else
+				tp->scroll.duration_vert = 0;
+		}
 	}
 
 	if (tp->scroll.duration_horiz == ACTIVE_THRESHOLD) {
