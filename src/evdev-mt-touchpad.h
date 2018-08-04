@@ -366,7 +366,7 @@ struct tp_dispatch {
 		uint64_t time_prev;
 		struct {
 			uint64_t h,
-				  v;
+				 v;
 		} duration;
 	} scroll;
 
