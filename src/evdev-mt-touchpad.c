@@ -328,7 +328,7 @@ tp_begin_touch(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	t->was_down = true;
 	tp->nfingers_down++;
 	t->palm.time = time;
-	t->thumb.state = THUMB_STATE_MAYBE;
+	t->thumb.state = THUMB_STATE_NEW;
 	t->thumb.first_touch_time = time;
 	t->tap.is_thumb = false;
 	t->tap.is_palm = false;
@@ -711,7 +711,7 @@ tp_touch_active(const struct tp_dispatch *tp, const struct tp_touch *t)
 	return (t->state == TOUCH_BEGIN || t->state == TOUCH_UPDATE) &&
 		t->palm.state == PALM_NONE &&
 		!t->pinned.is_pinned &&
-		t->thumb.state != THUMB_STATE_YES &&
+		tp_thumb_considered_active(t) &&
 		tp_button_touch_active(tp, t) &&
 		tp_edge_scroll_touch_active(tp, t);
 }
@@ -1082,82 +1082,6 @@ out:
 		  palm_state);
 }
 
-static inline const char*
-thumb_state_to_str(enum tp_thumb_state state)
-{
-	switch(state){
-	CASE_RETURN_STRING(THUMB_STATE_NO);
-	CASE_RETURN_STRING(THUMB_STATE_YES);
-	CASE_RETURN_STRING(THUMB_STATE_MAYBE);
-	}
-
-	return NULL;
-}
-
-static void
-tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
-{
-	enum tp_thumb_state state = t->thumb.state;
-
-	/* once a thumb, always a thumb, once ruled out always ruled out */
-	if (!tp->thumb.detect_thumbs ||
-	    t->thumb.state != THUMB_STATE_MAYBE)
-		return;
-
-	if (t->point.y < tp->thumb.upper_thumb_line) {
-		/* if a potential thumb is above the line, it won't ever
-		 * label as thumb */
-		t->thumb.state = THUMB_STATE_NO;
-		goto out;
-	}
-
-	/* If the thumb moves by more than 7mm, it's not a resting thumb */
-	if (t->state == TOUCH_BEGIN)
-		t->thumb.initial = t->point;
-	else if (t->state == TOUCH_UPDATE) {
-		struct device_float_coords delta;
-		struct phys_coords mm;
-
-		delta = device_delta(t->point, t->thumb.initial);
-		mm = tp_phys_delta(tp, delta);
-		if (length_in_mm(mm) > 7) {
-			t->thumb.state = THUMB_STATE_NO;
-			goto out;
-		}
-	}
-
-	/* Note: a thumb at the edge of the touchpad won't trigger the
-	 * threshold, the surface area is usually too small. So we have a
-	 * two-stage detection: pressure and time within the area.
-	 * A finger that remains at the very bottom of the touchpad becomes
-	 * a thumb.
-	 */
-	if (t->pressure > tp->thumb.threshold)
-		t->thumb.state = THUMB_STATE_YES;
-	else if (t->point.y > tp->thumb.lower_thumb_line &&
-		 tp->scroll.method != LIBINPUT_CONFIG_SCROLL_EDGE &&
-		 t->thumb.first_touch_time + THUMB_MOVE_TIMEOUT < time)
-		t->thumb.state = THUMB_STATE_YES;
-
-	/* now what? we marked it as thumb, so:
-	 *
-	 * - pointer motion must ignore this touch
-	 * - clickfinger must ignore this touch for finger count
-	 * - software buttons are unaffected
-	 * - edge scrolling unaffected
-	 * - gestures: unaffected
-	 * - tapping: honour thumb on begin, ignore it otherwise for now,
-	 *   this gets a tad complicated otherwise
-	 */
-out:
-	if (t->thumb.state != state)
-		evdev_log_debug(tp->device,
-			  "thumb state: touch %d, %s → %s\n",
-			  t->index,
-			  thumb_state_to_str(state),
-			  thumb_state_to_str(t->thumb.state));
-}
-
 static void
 tp_unhover_pressure(struct tp_dispatch *tp, uint64_t time)
 {
@@ -1463,52 +1387,6 @@ tp_detect_jumps(const struct tp_dispatch *tp, struct tp_touch *t)
 }
 
 static void
-tp_detect_thumb_while_moving(struct tp_dispatch *tp)
-{
-	struct tp_touch *t;
-	struct tp_touch *first = NULL,
-			*second = NULL;
-	struct device_coords distance;
-	struct phys_coords mm;
-
-	tp_for_each_touch(tp, t) {
-		if (t->state == TOUCH_NONE ||
-		    t->state == TOUCH_HOVERING)
-			continue;
-
-		if (t->state != TOUCH_BEGIN)
-			first = t;
-		else
-			second = t;
-
-		if (first && second)
-			break;
-	}
-
-	assert(first);
-	assert(second);
-
-	if (tp->scroll.method == LIBINPUT_CONFIG_SCROLL_2FG) {
-		/* If the second finger comes down next to the other one, we
-		 * assume this is a scroll motion.
-		 */
-		distance.x = abs(first->point.x - second->point.x);
-		distance.y = abs(first->point.y - second->point.y);
-		mm = evdev_device_unit_delta_to_mm(tp->device, &distance);
-
-		if (mm.x <= 25 && mm.y <= 15)
-			return;
-	}
-
-	/* Finger are too far apart or 2fg scrolling is disabled, mark
-	 * second finger as thumb */
-	evdev_log_debug(tp->device,
-			"touch %d is speed-based thumb\n",
-			second->index);
-	second->thumb.state = THUMB_STATE_YES;
-}
-
-static void
 tp_pre_process_state(struct tp_dispatch *tp, uint64_t time)
 {
 	struct tp_touch *t;
@@ -1534,7 +1412,7 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 	struct tp_touch *t;
 	bool restart_filter = false;
 	bool want_motion_reset;
-	bool have_new_touch = false;
+//	bool have_new_touch = false;
 	unsigned int speed_exceeded_count = 0;
 
 	tp_position_fake_touches(tp);
@@ -1572,7 +1450,7 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 			tp_motion_history_reset(t);
 		}
 
-		tp_thumb_detect(tp, t, time);
+		tp_thumb_update(tp, t);
 		tp_palm_detect(tp, t, time);
 		tp_detect_wobbling(tp, t, time);
 		tp_motion_hysteresis(tp, t);
@@ -1585,6 +1463,8 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 		 * Take the touch with the highest speed excess, if it is
 		 * above a certain threshold (5, see below), assume a
 		 * dropped finger is a thumb.
+		 *
+		 * Also use this to move from JAILED to LIVE thumb state.
 		 *
 		 * Yes, this relies on the touchpad to keep sending us
 		 * events even if the finger doesn't move, otherwise we
@@ -1605,17 +1485,14 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 		tp_unpin_finger(tp, t);
 
 		if (t->state == TOUCH_BEGIN) {
-			have_new_touch = true;
+//			have_new_touch = true;
 			restart_filter = true;
 		}
 	}
 
-	/* If we have one touch that exceeds the speed and we get a new
-	 * touch down while doing that, the second touch is a thumb */
-	if (have_new_touch &&
-	    tp->nfingers_down == 2 &&
-	    speed_exceeded_count > 5)
-		tp_detect_thumb_while_moving(tp);
+	/* When a finger is added or lifted, run context thumb detection */
+	if (tp->nfingers_down != tp->old_nfingers_down)
+		tp_thumb_detect_by_context(tp);
 
 	if (restart_filter)
 		filter_restart(tp->device->pointer.filter, tp, time);

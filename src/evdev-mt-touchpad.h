@@ -138,9 +138,14 @@ enum tp_gesture_state {
 };
 
 enum tp_thumb_state {
-	THUMB_STATE_NO,
-	THUMB_STATE_YES,
-	THUMB_STATE_MAYBE,
+	THUMB_STATE_NEW,
+	THUMB_STATE_LIVE,
+	THUMB_STATE_JAILED,
+	THUMB_STATE_GESTURE,
+	THUMB_STATE_SUPPRESSED,
+	THUMB_STATE_REVIVED,
+	THUMB_STATE_REV_JAILED,
+	THUMB_STATE_DEAD,
 };
 
 struct tp_touch {
@@ -634,5 +639,23 @@ tp_palm_tap_is_palm(const struct tp_dispatch *tp, const struct tp_touch *t);
 
 void
 tp_clickpad_middlebutton_apply_config(struct evdev_device *device);
+
+void
+tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t);
+
+void
+tp_thumb_detect_by_context(struct tp_dispatch *tp);
+
+bool
+tp_thumb_edge_scroll_ignore(const struct tp_touch *t);
+
+bool
+tp_thumb_tap_ignore(const struct tp_touch *t);
+
+bool
+tp_thumb_clickfinger_ignore(const struct tp_touch *t);
+
+bool
+tp_thumb_considered_active(const struct tp_touch *t);
 
 #endif
