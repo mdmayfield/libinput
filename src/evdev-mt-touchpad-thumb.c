@@ -206,16 +206,6 @@ tp_thumb_update_by_context(struct tp_dispatch *tp)
 	struct phys_coords mm;
 	unsigned int speed_exceeded_count = 0;
 
-// TODO: need a more robust system of grouping touches. If a thumb already
-// exists, any 2+ touches next to each other and above the upper_thumb_line 
-// should be ACTIVE.
-
-// Maybe find the lowest touch, then set any other touches >25mm above it
-// to ACTIVE?
-
-// This is needed for the situation where a thumb is resting and two fingers
-// are used to scroll or swipe (not pinch).
-
 	/* Get the first and second bottom-most touches, the max speed exceeded
 	 * count overall, and the newest touch (or one of them, if more).
 	 */
@@ -307,7 +297,7 @@ tp_thumb_update_by_context(struct tp_dispatch *tp)
 		distance.y = abs(first->point.y - first->thumb.initial.y);
 		mm = evdev_device_unit_delta_to_mm(tp->device, &distance);
 
-		if (hypot(mm.x, mm.y) < PINCH_THRESHOLD)
+		if (length_in_mm(mm) < PINCH_THRESHOLD)
 			tp_thumb_set_state(tp, first, THUMB_STATE_GESTURE);
 		else
 			tp_thumb_set_state(tp, first, THUMB_STATE_SUPPRESSED);
@@ -329,7 +319,7 @@ tp_thumb_update_by_context(struct tp_dispatch *tp)
 }
 
 bool
-tp_thumb_update_in_gesture(struct tp_dispatch *tp)
+tp_thumb_update_unknown_gesture(struct tp_dispatch *tp)
 {
 	struct tp_touch *right = tp->gesture.touches[0];
 	struct tp_touch *left = tp->gesture.touches[1];
@@ -354,15 +344,15 @@ tp_thumb_update_in_gesture(struct tp_dispatch *tp)
 	temp_dist.x = abs(left->point.x - left->gesture.initial.x);
 	temp_dist.y = abs(left->point.y - left->gesture.initial.y);
 	temp_mm = evdev_device_unit_delta_to_mm(tp->device, &temp_dist);
-	left_moved = hypot(temp_mm.x, temp_mm.y);
+	left_moved = length_in_mm(temp_mm);
 
 	temp_dist.x = abs(right->point.x - right->gesture.initial.x);
 	temp_dist.y = abs(right->point.y - right->gesture.initial.y);
 	temp_mm = evdev_device_unit_delta_to_mm(tp->device, &temp_dist);
-	right_moved = hypot(temp_mm.x, temp_mm.y);
+	right_moved = length_in_mm(temp_mm);
 
-printf("left_moved %f left_spx %f   right_moved %f right_spx %f\n",
-	left_moved, left->speed.last_speed, right_moved, right->speed.last_speed);
+//printf("left_moved %f left_spx %f   right_moved %f right_spx %f\n",
+//	left_moved, left->speed.last_speed, right_moved, right->speed.last_speed);
 
 	if ((left_moved <= 2.0 && right_moved > 2.0 &&
 	    right->speed.exceeded_count > 5 &&

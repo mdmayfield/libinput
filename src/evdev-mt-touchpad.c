@@ -122,6 +122,7 @@ tp_calculate_motion_speed(struct tp_dispatch *tp, struct tp_touch *t)
 	speed *= 1000000; /* mm/s */
 
 	t->speed.last_speed = speed;
+	t->history.odometer += distance;
 }
 
 static inline void
@@ -334,6 +335,7 @@ tp_begin_touch(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	t->tap.is_palm = false;
 	assert(tp->nfingers_down >= 1);
 	tp->hysteresis.last_motion_time = time;
+	t->history.odometer = 0.0;
 }
 
 /**

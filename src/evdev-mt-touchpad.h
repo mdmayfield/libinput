@@ -179,6 +179,7 @@ struct tp_touch {
 		} samples[TOUCHPAD_HISTORY_LENGTH];
 		unsigned int index;
 		unsigned int count;
+		double odometer;
 	} history;
 
 	struct {
@@ -670,6 +671,6 @@ bool
 tp_thumb_gesture_active(const struct tp_touch *t);
 
 bool
-tp_thumb_update_in_gesture(struct tp_dispatch *tp);
+tp_thumb_update_unknown_gesture(struct tp_dispatch *tp);
 
 #endif

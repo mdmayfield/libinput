@@ -92,6 +92,21 @@ tp_get_average_touches_delta(struct tp_dispatch *tp)
 	return tp_get_touches_delta(tp, true);
 }
 
+static bool
+tp_gesture_pinch_eligible(struct tp_dispatch *tp)
+{
+	struct tp_touch *t;
+
+	tp_for_each_touch(tp, t) {
+		if (!tp_touch_gesture_active(tp, t))
+			continue;
+		if(t->history.odometer > 4.0)
+			return false;
+	}
+
+	return true;
+}
+
 static void
 tp_gesture_start(struct tp_dispatch *tp, uint64_t time)
 {
@@ -133,12 +148,6 @@ tp_gesture_post_pointer_motion(struct tp_dispatch *tp, uint64_t time)
 	struct device_float_coords raw;
 	struct normalized_coords delta;
 
-	/* When a clickpad is clicked, combine motion of all active touches */
-//	if (tp->buttons.is_clickpad && tp->buttons.state)
-//		raw = tp_get_combined_touches_delta(tp);
-//	else
-//TODO: check in button-areas mode. Combining motion is too fast in clickfinger
-//due to thumb detection
 	raw = tp_get_average_touches_delta(tp);
 
 	delta = tp_filter_motion(tp, &raw, time);
@@ -193,7 +202,7 @@ tp_gesture_get_direction(struct tp_dispatch *tp, struct tp_touch *touch,
 	struct device_float_coords delta;
 	double move_threshold = 1.0; /* mm */
 
-	move_threshold += (nfingers - 1);
+	move_threshold *= (nfingers - 1);
 
 	delta = device_delta(touch->point, touch->gesture.initial);
 	mm = tp_phys_delta(tp, delta);
@@ -333,14 +342,23 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	uint32_t dir1, dir2;
 	struct phys_coords mm;
 	int vert_distance, horiz_distance;
+	bool pinch_eligible;
 
 	vert_distance = abs(first->point.y - second->point.y);
 	horiz_distance = abs(first->point.x - second->point.x);
 
-	if (tp_thumb_update_in_gesture(tp)) {
+	/* If a non-active thumb has been detected, cancel this gesture */
+	if (tp_thumb_update_unknown_gesture(tp)) {
 		tp_gesture_cancel(tp, time);
 		return GESTURE_STATE_NONE;
 	}
+
+	/* If a gesture involves a touch that has traveled more than 2mm
+	 * in its prior lifetime, don't count it as a pinch. This greatly
+	 * increases scroll/swipe vs. pinch gesture detection accuracy and
+	 * helps prevent unintended 2-finger scrolls where one finger is still.
+	 */
+	pinch_eligible = tp_gesture_pinch_eligible(tp);
 
 	/* Wait for both fingers to have moved */
 	dir1 = tp_gesture_get_direction(tp, first, tp->gesture.finger_count);
@@ -350,7 +368,9 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 
 	/* If fingers are in a definitive pinch position, pinch */
 	mm = evdev_convert_xy_to_mm(tp->device, horiz_distance, vert_distance);
-	if (tp->gesture.finger_count == 2 && mm.x > 50 && mm.y > 50) {
+	if (tp->gesture.finger_count == 2 &&
+	    mm.x > 50 && mm.y > 50 &&
+	    pinch_eligible) {
 		tp_gesture_init_pinch(tp);
 		return GESTURE_STATE_PINCH;
 	}
@@ -365,7 +385,7 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 		} else if (tp->gesture.enabled) {
 			return GESTURE_STATE_SWIPE;
 		}
-	} else {
+	} else if (pinch_eligible) {
 		tp_gesture_init_pinch(tp);
 		return GESTURE_STATE_PINCH;
 	}
