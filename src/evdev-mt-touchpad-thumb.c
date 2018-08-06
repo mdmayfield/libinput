@@ -328,11 +328,11 @@ tp_thumb_update_by_context(struct tp_dispatch *tp)
 
 }
 
-void
+bool
 tp_thumb_update_in_gesture(struct tp_dispatch *tp)
 {
-	struct tp_touch *left = tp->gesture.touches[0];
-	struct tp_touch *right = tp->gesture.touches[1];
+	struct tp_touch *right = tp->gesture.touches[0];
+	struct tp_touch *left = tp->gesture.touches[1];
 	struct tp_touch *lowest;
 	double left_moved,
 	       right_moved;
@@ -361,12 +361,18 @@ tp_thumb_update_in_gesture(struct tp_dispatch *tp)
 	temp_mm = evdev_device_unit_delta_to_mm(tp->device, &temp_dist);
 	right_moved = hypot(temp_mm.x, temp_mm.y);
 
+printf("left_moved %f left_spx %f   right_moved %f right_spx %f\n",
+	left_moved, left->speed.last_speed, right_moved, right->speed.last_speed);
+
 	if ((left_moved <= 2.0 && right_moved > 2.0 &&
-	     right->speed.exceeded_count > 5 &&
-	     left->speed.exceeded_count == 0) ||
+	    right->speed.exceeded_count > 5 &&
+	    left->speed.exceeded_count == 0) ||
 	    (right_moved <= 2.0 && left_moved > 2.0 &&
-	     left->speed.exceeded_count > 5 &&
-	     right->speed.exceeded_count == 0))
+	    left->speed.exceeded_count > 5 &&
+	    right->speed.exceeded_count == 0)) {
 		tp_thumb_set_state(tp, lowest, THUMB_STATE_SUPPRESSED);
-	return;
+		return true;
+	}
+
+	return false;
 }

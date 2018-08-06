@@ -335,9 +335,10 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	vert_distance = abs(first->point.y - second->point.y);
 	horiz_distance = abs(first->point.x - second->point.x);
 
-	tp_thumb_update_in_gesture(tp);
-
-// TODO: use HW thumb detection to more quickly differentiate between pinch and zoom?
+	if (tp_thumb_update_in_gesture(tp)) {
+		tp_gesture_cancel(tp, time);
+		return GESTURE_STATE_NONE;
+	}
 
 	/* Wait for both fingers to have moved */
 	dir1 = tp_gesture_get_direction(tp, first, tp->gesture.finger_count);
@@ -512,9 +513,6 @@ tp_gesture_post_events(struct tp_dispatch *tp, uint64_t time)
 			tp_gesture_post_pointer_motion(tp, time);
 		break;
 	case 2:
-		if (tp->gesture.state == GESTURE_STATE_UNKNOWN)
-			tp_gesture_post_pointer_motion(tp, time);
-		continue;
 	case 3:
 	case 4:
 		tp_gesture_post_gesture(tp, time);

@@ -669,7 +669,7 @@ tp_thumb_considered_active(const struct tp_touch *t);
 bool
 tp_thumb_gesture_active(const struct tp_touch *t);
 
-void
+bool
 tp_thumb_update_in_gesture(struct tp_dispatch *tp);
 
 #endif
