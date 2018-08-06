@@ -31,6 +31,8 @@
 #include "evdev-mt-touchpad.h"
 
 #define PINCH_THRESHOLD 2.0 /* mm movement before "not a pinch" */
+#define SCROLL_MM_X 35
+#define SCROLL_MM_Y 25
 
 static inline const char*
 thumb_state_to_str(enum tp_thumb_state state)
@@ -136,6 +138,15 @@ tp_thumb_considered_active(const struct tp_touch *t)
 	return (t->thumb.state == THUMB_STATE_LIVE ||
 		t->thumb.state == THUMB_STATE_REVIVED);
 }
+
+bool
+tp_thumb_gesture_active(const struct tp_touch *t)
+{
+	return (t->thumb.state == THUMB_STATE_LIVE ||
+		t->thumb.state == THUMB_STATE_GESTURE ||
+		t->thumb.state == THUMB_STATE_REVIVED);
+}
+
 
 // called in tp_process_state inside tp_for_each_touch. Do we even need *tp?
 void
@@ -246,7 +257,7 @@ tp_thumb_update_by_context(struct tp_dispatch *tp)
 	    tp->nfingers_down == 2 &&
 	    speed_exceeded_count > 5 &&
 	     (tp->scroll.method != LIBINPUT_CONFIG_SCROLL_2FG ||
-		  (mm.x > 30.0 && mm.y > 20.0))) {
+		  (mm.x > SCROLL_MM_X && mm.y > SCROLL_MM_Y))) {
 		evdev_log_debug(tp->device,
 				"touch %d is speed-based thumb\n",
 				newest->index);
@@ -260,9 +271,30 @@ tp_thumb_update_by_context(struct tp_dispatch *tp)
 	if (!tp->thumb.detect_thumbs)
 		return;
 
+	/* Enable responsive 2+ finger swipes/scrolls from the bottom of the
+	 * touchpad: if a new touch appears, and the first AND second bottom-
+	 * most touches are below the upper_thumb_line and close to each other,
+	 * set newest, first, and second to LIVE. (Two of these will be the
+	 * same touch if nfingers_down == 2; that's OK)
+	 */
+	if (newest &&
+	    tp->nfingers_down >=2 &&
+	    first->point.y > tp->thumb.upper_thumb_line &&
+	    second->point.y > tp->thumb.upper_thumb_line &&
+	    mm.x <= SCROLL_MM_X && mm.y <= SCROLL_MM_Y) {
+		tp_thumb_set_state(tp, newest, THUMB_STATE_LIVE);
+		tp_thumb_set_state(tp, first, THUMB_STATE_LIVE);
+		tp_thumb_set_state(tp, second, THUMB_STATE_LIVE);
+		return;
+	}
+
 	switch(first->thumb.state) {
 	case THUMB_STATE_LIVE:
 	case THUMB_STATE_JAILED:
+	/* If touches are close together, probably a swipe or scroll */
+		if (mm.x <= SCROLL_MM_X && mm.y <= SCROLL_MM_Y)
+			break;
+
 		distance.x = abs(first->point.x - first->thumb.initial.x);
 		distance.y = abs(first->point.y - first->thumb.initial.y);
 		mm = evdev_device_unit_delta_to_mm(tp->device, &distance);
@@ -275,6 +307,10 @@ tp_thumb_update_by_context(struct tp_dispatch *tp)
 
 	case THUMB_STATE_REVIVED:
 	case THUMB_STATE_REV_JAILED:
+	/* If touches are close together, probably a swipe or scroll */
+		if (mm.x <= SCROLL_MM_X && mm.y <= SCROLL_MM_Y)
+			break;
+
 		tp_thumb_set_state(tp, first, THUMB_STATE_DEAD);
 		break;
 
