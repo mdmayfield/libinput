@@ -147,8 +147,6 @@ tp_thumb_gesture_active(const struct tp_touch *t)
 		t->thumb.state == THUMB_STATE_REVIVED);
 }
 
-
-// called in tp_process_state inside tp_for_each_touch. Do we even need *tp?
 void
 tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t)
 {
@@ -207,6 +205,16 @@ tp_thumb_update_by_context(struct tp_dispatch *tp)
 	struct device_coords distance;
 	struct phys_coords mm;
 	unsigned int speed_exceeded_count = 0;
+
+// TODO: need a more robust system of grouping touches. If a thumb already
+// exists, any 2+ touches next to each other and above the upper_thumb_line 
+// should be ACTIVE.
+
+// Maybe find the lowest touch, then set any other touches >25mm above it
+// to ACTIVE?
+
+// This is needed for the situation where a thumb is resting and two fingers
+// are used to scroll or swipe (not pinch).
 
 	/* Get the first and second bottom-most touches, the max speed exceeded
 	 * count overall, and the newest touch (or one of them, if more).
@@ -340,6 +348,9 @@ tp_thumb_update_in_gesture(struct tp_dispatch *tp)
 	 * the gesture is cancelled.
 	 */
 
+// TODO: maybe use tp_gesture_get_direction to unify the thresholds? tp_g_g_d
+// used to be 1.0mm * (fingers - 1). I changed it for now to 1mm + (fingers -1)
+
 	temp_dist.x = abs(left->point.x - left->gesture.initial.x);
 	temp_dist.y = abs(left->point.y - left->gesture.initial.y);
 	temp_mm = evdev_device_unit_delta_to_mm(tp->device, &temp_dist);
@@ -351,9 +362,11 @@ tp_thumb_update_in_gesture(struct tp_dispatch *tp)
 	right_moved = hypot(temp_mm.x, temp_mm.y);
 
 	if ((left_moved <= 2.0 && right_moved > 2.0 &&
-	     right->speed.exceeded_count > 5) ||
+	     right->speed.exceeded_count > 5 &&
+	     left->speed.exceeded_count == 0) ||
 	    (right_moved <= 2.0 && left_moved > 2.0 &&
-	     left->speed.exceeded_count > 5))
+	     left->speed.exceeded_count > 5 &&
+	     right->speed.exceeded_count == 0))
 		tp_thumb_set_state(tp, lowest, THUMB_STATE_SUPPRESSED);
 	return;
 }
