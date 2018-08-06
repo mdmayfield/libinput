@@ -644,7 +644,7 @@ void
 tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t);
 
 void
-tp_thumb_detect_by_context(struct tp_dispatch *tp);
+tp_thumb_update_by_context(struct tp_dispatch *tp);
 
 bool
 tp_thumb_edge_scroll_ignore(const struct tp_touch *t);
