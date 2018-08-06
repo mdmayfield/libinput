@@ -66,16 +66,17 @@ tp_thumb_set_state(struct tp_dispatch *tp,
 }
 
 static bool
-tp_thumb_detect_hw_present(const struct tp_dispatch *tp)
-{
-	return (tp->pressure.use_pressure || tp->touch_size.use_touch_size);
-}
-
-static bool
 tp_thumb_hw_says_finger(const struct tp_dispatch *tp, const struct tp_touch *t)
 {
-	// TODO detect with size and/or pressure here, return true if finger
-	// return false if there is no HW available to detect
+	if (tp->thumb.use_size &&
+	    t->major <= tp->thumb.size_threshold &&
+	    t->minor <= tp->thumb.size_threshold)
+		return true;
+
+	if (tp->thumb.use_pressure &&
+	    t->pressure <= tp->thumb.pressure_threshold)
+		return true;
+
 	return false;
 }
 
@@ -98,11 +99,12 @@ tp_thumb_needs_jail(const struct tp_dispatch *tp, const struct tp_touch *t)
 static bool
 tp_thumb_escaped_jail(const struct tp_dispatch *tp, const struct tp_touch *t)
 {
-	if (t->point.y < tp->thumb.upper_thumb_line)
+	if ((t->point.y < tp->thumb.upper_thumb_line) ||
+	    (t->speed.exceeded_count == 10) ||
+	    (tp_thumb_hw_says_finger(tp, t)))
 		return true;
-	if (t->speed.exceeded_count == 10)
-		return true;
-	return false;
+	else
+		return false;
 }
 
 bool
