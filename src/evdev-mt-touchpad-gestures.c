@@ -133,8 +133,10 @@ tp_gesture_post_pointer_motion(struct tp_dispatch *tp, uint64_t time)
 	struct device_float_coords raw;
 	struct normalized_coords delta;
 
-	/* When a clickpad is clicked, combine motion of all active touches */
-	if (tp->buttons.is_clickpad && tp->buttons.state)
+	/* When a clickpad is clicked, or gesture state is UNKNOWN,
+	 * combine motion of all active touches */
+	if ((tp->buttons.is_clickpad && tp->buttons.state) ||
+	     tp->gesture.state == GESTURE_STATE_UNKNOWN)
 		raw = tp_get_combined_touches_delta(tp);
 	else
 		raw = tp_get_average_touches_delta(tp);
@@ -335,45 +337,23 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	vert_distance = abs(first->point.y - second->point.y);
 	horiz_distance = abs(first->point.x - second->point.x);
 
-	if (time > (tp->gesture.initial_time + DEFAULT_GESTURE_2FG_SCROLL_TIMEOUT)) {
-		/* for two-finger gestures, if the fingers stay unmoving for a
-		 * while, assume (slow) scroll */
-		if (tp->gesture.finger_count == 2) {
-			tp_gesture_set_scroll_buildup(tp);
-			return GESTURE_STATE_SCROLL;
-		/* more fingers than slots, don't bother with pinch, always
-		 * assume swipe */
-		} else if (tp->gesture.finger_count > tp->num_slots) {
-			return GESTURE_STATE_SWIPE;
-		}
+	tp_thumb_update_in_gesture(tp);
 
-		/* for 3+ finger gestures, check if one finger is > 20mm
-		   below the others */
-		mm = evdev_convert_xy_to_mm(tp->device,
-					    horiz_distance,
-					    vert_distance);
-		if (mm.y > 20 && tp->gesture.enabled) {
-			tp_gesture_init_pinch(tp);
-			return GESTURE_STATE_PINCH;
-		} else {
-			return GESTURE_STATE_SWIPE;
-		}
-	}
-
-	if (time > (tp->gesture.initial_time + DEFAULT_GESTURE_2FG_SCROLL_TIMEOUT)) {
-		mm = evdev_convert_xy_to_mm(tp->device, horiz_distance, vert_distance);
-		if (tp->gesture.finger_count == 2 && mm.x > 40 && mm.y > 40)
-			return GESTURE_STATE_PINCH;
-	}
-
-	/* Else wait for both fingers to have moved */
+	/* Wait for both fingers to have moved */
 	dir1 = tp_gesture_get_direction(tp, first, tp->gesture.finger_count);
 	dir2 = tp_gesture_get_direction(tp, second, tp->gesture.finger_count);
 	if (dir1 == UNDEFINED_DIRECTION || dir2 == UNDEFINED_DIRECTION)
 		return GESTURE_STATE_UNKNOWN;
 
-	/* If both touches are moving in the same direction assume
-	 * scroll or swipe */
+	/* If fingers are in a definitive pinch position, pinch */
+	mm = evdev_convert_xy_to_mm(tp->device, horiz_distance, vert_distance);
+	if (tp->gesture.finger_count == 2 && mm.x > 50 && mm.y > 50) {
+		tp_gesture_init_pinch(tp);
+		return GESTURE_STATE_PINCH;
+	}
+
+	/* If both touches are moving in the same direction, or if we don't
+	 * have enough slots, assume scroll or swipe */
 	if (tp->gesture.finger_count > tp->num_slots ||
 	    tp_gesture_same_directions(dir1, dir2)) {
 		if (tp->gesture.finger_count == 2) {
@@ -501,10 +481,12 @@ tp_gesture_post_gesture(struct tp_dispatch *tp, uint64_t time)
 		tp->gesture.state =
 			tp_gesture_handle_state_pinch(tp, time);
 
-	evdev_log_debug(tp->device,
+	if (tp->gesture.state != oldstate) {
+		evdev_log_debug(tp->device,
 			"gesture state: %s → %s\n",
 			gesture_state_to_str(oldstate),
 			gesture_state_to_str(tp->gesture.state));
+	}
 }
 
 void
@@ -533,6 +515,8 @@ tp_gesture_post_events(struct tp_dispatch *tp, uint64_t time)
 	case 3:
 	case 4:
 		tp_gesture_post_gesture(tp, time);
+		if (tp->gesture.state == GESTURE_STATE_UNKNOWN)
+			tp_gesture_post_pointer_motion(tp, time);
 		break;
 	}
 }

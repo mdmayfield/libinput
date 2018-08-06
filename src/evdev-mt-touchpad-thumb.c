@@ -323,7 +323,35 @@ tp_thumb_update_by_context(struct tp_dispatch *tp)
 void
 tp_thumb_update_in_gesture(struct tp_dispatch *tp)
 {
-	// TODO
+	struct tp_touch *left = tp->gesture.touches[0];
+	struct tp_touch *right = tp->gesture.touches[1];
+	struct tp_touch *lowest;
+	double left_moved,
+	       right_moved;
+	struct device_coords temp_dist;
+	struct phys_coords temp_mm;
+
+	lowest = (left->gesture.initial.y > right->gesture.initial.y) ?
+		left : right;
+
+	/* Gesture thumb handling: If either of the significant gesture
+	 * touches exceeds the speed threshold, while the other touch has
+	 * not moved more than 2mm, the lowest touch becomes a thumb and
+	 * the gesture is cancelled.
+	 */
+
+	temp_dist.x = abs(left->point.x - left->gesture.initial.x);
+	temp_dist.y = abs(left->point.y - left->gesture.initial.y);
+	temp_mm = evdev_device_unit_delta_to_mm(tp->device, &temp_dist);
+	left_moved = hypot(temp_mm.x, temp_mm.y);
+
+	temp_dist.x = abs(right->point.x - right->gesture.initial.x);
+	temp_dist.y = abs(right->point.y - right->gesture.initial.y);
+	temp_mm = evdev_device_unit_delta_to_mm(tp->device, &temp_dist);
+	right_moved = hypot(temp_mm.x, temp_mm.y);
+
+	if ((left_moved < 2.0 && right->speed.exceeded_count > 5) ||
+	    (right_moved < 2.0 && left->speed.exceeded_count > 5))
+		tp_thumb_set_state(tp, lowest, THUMB_STATE_SUPPRESSED);
+	return;
 }
-
-
