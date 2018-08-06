@@ -350,8 +350,10 @@ tp_thumb_update_in_gesture(struct tp_dispatch *tp)
 	temp_mm = evdev_device_unit_delta_to_mm(tp->device, &temp_dist);
 	right_moved = hypot(temp_mm.x, temp_mm.y);
 
-	if ((left_moved < 2.0 && right->speed.exceeded_count > 5) ||
-	    (right_moved < 2.0 && left->speed.exceeded_count > 5))
+	if ((left_moved <= 2.0 && right_moved > 2.0 &&
+	     right->speed.exceeded_count > 5) ||
+	    (right_moved <= 2.0 && left_moved > 2.0 &&
+	     left->speed.exceeded_count > 5))
 		tp_thumb_set_state(tp, lowest, THUMB_STATE_SUPPRESSED);
 	return;
 }
