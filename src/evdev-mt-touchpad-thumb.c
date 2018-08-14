@@ -177,7 +177,7 @@ tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t)
 	case THUMB_STATE_GESTURE:
 	if (tp->nfingers_down == 1) {
 		t->thumb.initial = t->point;
-
+		printf("One finger down\n");
 		if (tp_thumb_needs_jail(tp, t))
 			tp_thumb_set_state(tp, t, THUMB_STATE_REV_JAILED);
 		else

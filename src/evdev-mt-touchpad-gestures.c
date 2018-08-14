@@ -32,7 +32,7 @@
 #define DEFAULT_GESTURE_SWITCH_TIMEOUT ms2us(100)
 #define DEFAULT_GESTURE_2FG_SCROLL_TIMEOUT ms2us(150)
 #define DEFAULT_GESTURE_2FG_PINCH_TIMEOUT ms2us(75)
-#define PINCH_THRESHOLD 8.0 /* mm movement before "not a pinch" */
+#define PINCH_THRESHOLD 4.0 /* mm movement before "not a pinch" */
 
 static inline const char*
 gesture_state_to_str(enum tp_gesture_state state)
@@ -312,24 +312,12 @@ tp_gesture_handle_state_none(struct tp_dispatch *tp, uint64_t time)
 static inline int
 tp_gesture_same_directions(int dir1, int dir2)
 {
-	/*
-	 * In some cases (semi-mt touchpads) we may seen one finger move
-	 * e.g. N/NE and the other W/NW so we not only check for overlapping
-	 * directions, but also for neighboring bits being set.
-	 * The ((dira & 0x80) && (dirb & 0x01)) checks are to check for bit 0
-	 * and 7 being set as they also represent neighboring directions.
+	/* Since semi-MT touchpads don't support pinch gestures, use a strict
+	 * check here to make it easier to differentiate between pinches and
+	 * swipes.
 	 */
 
-// Since libinput doesn't support pinches on semi-mt touchpads, this actually
-// is too permissive of a match and makes pinches less reliable, because
-// for small movements up to 3 bits are set.
-//	return ((dir1 | (dir1 >> 1)) & dir2) ||
-//		((dir2 | (dir2 >> 1)) & dir1) ||
-//		((dir1 & 0x80) && (dir2 & 0x01)) ||
-//		((dir2 & 0x80) && (dir1 & 0x01));
-
-	return (dir1 & dir2) && !(dir1 ^ dir2);
-
+	return (dir1 & dir2);
 }
 
 static inline void
@@ -633,6 +621,7 @@ tp_gesture_handle_state(struct tp_dispatch *tp, uint64_t time)
 	unsigned int active_touches = 0;
 	struct tp_touch *t;
 	tp_for_each_touch(tp, t) {
+// TODO: find a better spot for this code. It doesn't seem 100% right here.
 		if (t->state == TOUCH_BEGIN && tp->nfingers_down == 1)
 			t->gesture.initial = t->point;
 		if (t->gesture.pinch_eligible && tp->nfingers_down == 1) {
