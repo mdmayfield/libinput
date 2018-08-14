@@ -32,6 +32,7 @@
 #define DEFAULT_GESTURE_SWITCH_TIMEOUT ms2us(100)
 #define DEFAULT_GESTURE_2FG_SCROLL_TIMEOUT ms2us(150)
 #define DEFAULT_GESTURE_2FG_PINCH_TIMEOUT ms2us(75)
+#define PINCH_THRESHOLD 8.0 /* mm movement before "not a pinch" */
 
 static inline const char*
 gesture_state_to_str(enum tp_gesture_state state)
@@ -100,7 +101,7 @@ tp_gesture_pinch_eligible(struct tp_dispatch *tp)
 	tp_for_each_touch(tp, t) {
 		if (!tp_touch_gesture_active(tp, t))
 			continue;
-		if(t->history.odometer > 4.0)
+		else if (!t->gesture.pinch_eligible)
 			return false;
 	}
 
@@ -318,10 +319,17 @@ tp_gesture_same_directions(int dir1, int dir2)
 	 * The ((dira & 0x80) && (dirb & 0x01)) checks are to check for bit 0
 	 * and 7 being set as they also represent neighboring directions.
 	 */
-	return ((dir1 | (dir1 >> 1)) & dir2) ||
-		((dir2 | (dir2 >> 1)) & dir1) ||
-		((dir1 & 0x80) && (dir2 & 0x01)) ||
-		((dir2 & 0x80) && (dir1 & 0x01));
+
+// Since libinput doesn't support pinches on semi-mt touchpads, this actually
+// is too permissive of a match and makes pinches less reliable, because
+// for small movements up to 3 bits are set.
+//	return ((dir1 | (dir1 >> 1)) & dir2) ||
+//		((dir2 | (dir2 >> 1)) & dir1) ||
+//		((dir1 & 0x80) && (dir2 & 0x01)) ||
+//		((dir2 & 0x80) && (dir1 & 0x01));
+
+	return (dir1 & dir2) && !(dir1 ^ dir2);
+
 }
 
 static inline void
@@ -353,7 +361,7 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 		return GESTURE_STATE_NONE;
 	}
 
-	/* If a gesture involves a touch that has traveled more than 2mm
+	/* If a gesture involves a touch that has traveled significantly
 	 * in its prior lifetime, don't count it as a pinch. This greatly
 	 * increases scroll/swipe vs. pinch gesture detection accuracy and
 	 * helps prevent unintended 2-finger scrolls where one finger is still.
@@ -367,18 +375,19 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 		return GESTURE_STATE_UNKNOWN;
 
 	/* If fingers are in a definitive pinch position, pinch */
-	mm = evdev_convert_xy_to_mm(tp->device, horiz_distance, vert_distance);
+/*	mm = evdev_convert_xy_to_mm(tp->device, horiz_distance, vert_distance);
 	if (tp->gesture.finger_count == 2 &&
 	    mm.x > 50 && mm.y > 50 &&
 	    pinch_eligible) {
 		tp_gesture_init_pinch(tp);
 		return GESTURE_STATE_PINCH;
 	}
-
+*/
 	/* If both touches are moving in the same direction, or if we don't
 	 * have enough slots, assume scroll or swipe */
 	if (tp->gesture.finger_count > tp->num_slots ||
 	    tp_gesture_same_directions(dir1, dir2)) {
+printf("Same direction, %d fingers down\n", tp->nfingers_down);
 		if (tp->gesture.finger_count == 2) {
 			tp_gesture_set_scroll_buildup(tp);
 			return GESTURE_STATE_SCROLL;
@@ -389,6 +398,9 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 		tp_gesture_init_pinch(tp);
 		return GESTURE_STATE_PINCH;
 	}
+
+	if (!pinch_eligible)
+		printf("Pinch ineligible\n");
 
 	return GESTURE_STATE_UNKNOWN;
 }
@@ -620,8 +632,23 @@ tp_gesture_handle_state(struct tp_dispatch *tp, uint64_t time)
 {
 	unsigned int active_touches = 0;
 	struct tp_touch *t;
-
 	tp_for_each_touch(tp, t) {
+		if (t->state == TOUCH_BEGIN && tp->nfingers_down == 1)
+			t->gesture.initial = t->point;
+		if (t->gesture.pinch_eligible && tp->nfingers_down == 1) {
+			struct device_coords distance;
+			struct phys_coords mm;
+
+			distance.x = abs(t->gesture.initial.x - t->point.x);
+			distance.y = abs(t->gesture.initial.y - t->point.y);
+			mm = evdev_device_unit_delta_to_mm(tp->device, &distance);
+
+			if (length_in_mm(mm) > PINCH_THRESHOLD) {
+				t->gesture.pinch_eligible = false;
+				printf("Setting touch pinch-ineligible\n");
+			}
+		}
+
 		if (tp_touch_gesture_active(tp, t))
 			active_touches++;
 	}

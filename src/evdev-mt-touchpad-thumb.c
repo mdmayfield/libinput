@@ -30,9 +30,9 @@
 
 #include "evdev-mt-touchpad.h"
 
-#define PINCH_THRESHOLD 2.0 /* mm movement before "not a pinch" */
-#define SCROLL_MM_X 35
+#define SCROLL_MM_X 35 /* minimum distance in mm for speed-based thumbs */
 #define SCROLL_MM_Y 25
+#define THUMB_RADIUS 4.0 /* in mm; differentiates resting from gesture thumb */
 
 static inline const char*
 thumb_state_to_str(enum tp_thumb_state state)
@@ -150,7 +150,6 @@ tp_thumb_gesture_active(const struct tp_touch *t)
 void
 tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t)
 {
-
 	if (!tp->thumb.detect_thumbs)
 		return;
 
@@ -290,14 +289,12 @@ tp_thumb_update_by_context(struct tp_dispatch *tp)
 	case THUMB_STATE_LIVE:
 	case THUMB_STATE_JAILED:
 	/* If touches are close together, probably a swipe or scroll */
-		if (mm.x <= SCROLL_MM_X && mm.y <= SCROLL_MM_Y)
+		if (mm.x <= SCROLL_MM_X && mm.y <= SCROLL_MM_Y) {
+			tp_thumb_set_state(tp, first, THUMB_STATE_GESTURE);
 			break;
+		}
 
-		distance.x = abs(first->point.x - first->thumb.initial.x);
-		distance.y = abs(first->point.y - first->thumb.initial.y);
-		mm = evdev_device_unit_delta_to_mm(tp->device, &distance);
-
-		if (length_in_mm(mm) < PINCH_THRESHOLD)
+		if (first->gesture.pinch_eligible)
 			tp_thumb_set_state(tp, first, THUMB_STATE_GESTURE);
 		else
 			tp_thumb_set_state(tp, first, THUMB_STATE_SUPPRESSED);
@@ -334,7 +331,7 @@ tp_thumb_update_unknown_gesture(struct tp_dispatch *tp)
 
 	/* Gesture thumb handling: If either of the significant gesture
 	 * touches exceeds the speed threshold, while the other touch has
-	 * not moved more than 2mm, the lowest touch becomes a thumb and
+	 * not moved significantly, the lowest touch becomes a thumb and
 	 * the gesture is cancelled.
 	 */
 
@@ -354,10 +351,10 @@ tp_thumb_update_unknown_gesture(struct tp_dispatch *tp)
 //printf("left_moved %f left_spx %f   right_moved %f right_spx %f\n",
 //	left_moved, left->speed.last_speed, right_moved, right->speed.last_speed);
 
-	if ((left_moved <= 2.0 && right_moved > 2.0 &&
+	if ((left_moved <= THUMB_RADIUS && right_moved > THUMB_RADIUS &&
 	    right->speed.exceeded_count > 5 &&
 	    left->speed.exceeded_count == 0) ||
-	    (right_moved <= 2.0 && left_moved > 2.0 &&
+	    (right_moved <= THUMB_RADIUS && left_moved > THUMB_RADIUS &&
 	    left->speed.exceeded_count > 5 &&
 	    right->speed.exceeded_count == 0)) {
 		tp_thumb_set_state(tp, lowest, THUMB_STATE_SUPPRESSED);

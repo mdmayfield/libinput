@@ -179,7 +179,6 @@ struct tp_touch {
 		} samples[TOUCHPAD_HISTORY_LENGTH];
 		unsigned int index;
 		unsigned int count;
-		double odometer;
 	} history;
 
 	struct {
@@ -227,6 +226,7 @@ struct tp_touch {
 
 	struct {
 		struct device_coords initial;
+		bool pinch_eligible;
 	} gesture;
 
 	struct {
