@@ -1499,6 +1499,7 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 		if (t->state == TOUCH_BEGIN) {
 			have_new_touch = true;
 			restart_filter = true;
+			t->gesture.initial = t->point;
 		}
 	}
 

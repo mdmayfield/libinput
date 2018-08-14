@@ -248,6 +248,30 @@ tp_gesture_set_scroll_buildup(struct tp_dispatch *tp)
 	tp->device->scroll.buildup = tp_normalize_delta(tp, average);
 }
 
+
+static void
+tp_gesture_check_for_pinch_eligibility(struct tp_dispatch *tp)
+{
+	struct tp_touch *t;
+
+	tp_for_each_touch(tp, t) {
+		if (t->gesture.pinch_eligible) {
+			struct device_coords distance;
+			struct phys_coords mm;
+
+			distance.x = abs(t->gesture.initial.x - t->point.x);
+			distance.y = abs(t->gesture.initial.y - t->point.y);
+			mm = evdev_device_unit_delta_to_mm(tp->device, &distance);
+
+			if (length_in_mm(mm) > PINCH_THRESHOLD) {
+				t->gesture.pinch_eligible = false;
+				printf("Setting touch pinch-ineligible\n");
+			}
+		}
+	}
+}
+
+
 static enum tp_gesture_state
 tp_gesture_handle_state_none(struct tp_dispatch *tp, uint64_t time)
 {
@@ -266,6 +290,8 @@ tp_gesture_handle_state_none(struct tp_dispatch *tp, uint64_t time)
 		else
 			return GESTURE_STATE_NONE;
 	}
+
+	tp_gesture_check_for_pinch_eligibility(tp);
 
 	first = touches[0];
 	second = touches[1];
@@ -402,6 +428,9 @@ tp_gesture_handle_state_scroll(struct tp_dispatch *tp, uint64_t time)
 	if (tp->scroll.method != LIBINPUT_CONFIG_SCROLL_2FG)
 		return GESTURE_STATE_SCROLL;
 
+// Need this here in case user puts down two fingers then lifts one up before pinch
+	tp_gesture_check_for_pinch_eligibility(tp);
+
 	raw = tp_get_average_touches_delta(tp);
 
 	/* scroll is not accelerated */
@@ -424,6 +453,9 @@ tp_gesture_handle_state_swipe(struct tp_dispatch *tp, uint64_t time)
 {
 	struct device_float_coords raw;
 	struct normalized_coords delta, unaccel;
+
+// Need this here in case user puts down 3+ fingers then lifts one up before pinch
+	tp_gesture_check_for_pinch_eligibility(tp);
 
 	raw = tp_get_average_touches_delta(tp);
 	delta = tp_filter_motion(tp, &raw, time);
@@ -621,23 +653,6 @@ tp_gesture_handle_state(struct tp_dispatch *tp, uint64_t time)
 	unsigned int active_touches = 0;
 	struct tp_touch *t;
 	tp_for_each_touch(tp, t) {
-// TODO: find a better spot for this code. It doesn't seem 100% right here.
-		if (t->state == TOUCH_BEGIN && tp->nfingers_down == 1)
-			t->gesture.initial = t->point;
-		if (t->gesture.pinch_eligible && tp->nfingers_down == 1) {
-			struct device_coords distance;
-			struct phys_coords mm;
-
-			distance.x = abs(t->gesture.initial.x - t->point.x);
-			distance.y = abs(t->gesture.initial.y - t->point.y);
-			mm = evdev_device_unit_delta_to_mm(tp->device, &distance);
-
-			if (length_in_mm(mm) > PINCH_THRESHOLD) {
-				t->gesture.pinch_eligible = false;
-				printf("Setting touch pinch-ineligible\n");
-			}
-		}
-
 		if (tp_touch_gesture_active(tp, t))
 			active_touches++;
 	}
