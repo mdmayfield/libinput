@@ -128,7 +128,8 @@ tp_thumb_tap_ignore(const struct tp_touch *t)
 bool
 tp_thumb_clickfinger_ignore(const struct tp_touch *t)
 {
-	return (t->thumb.state == THUMB_STATE_SUPPRESSED ||
+	return (t->thumb.state == THUMB_STATE_GESTURE ||
+		t->thumb.state == THUMB_STATE_SUPPRESSED ||
 		t->thumb.state == THUMB_STATE_DEAD);
 }
 
@@ -290,15 +291,12 @@ tp_thumb_update_by_context(struct tp_dispatch *tp)
 	case THUMB_STATE_JAILED:
 	/* If touches are close together, probably a swipe or scroll */
 		if (mm.x <= SCROLL_MM_X && mm.y <= SCROLL_MM_Y) {
+			tp_thumb_set_state(tp, first, THUMB_STATE_LIVE);
+			break;
+		} else {
 			tp_thumb_set_state(tp, first, THUMB_STATE_GESTURE);
 			break;
 		}
-
-		if (first->gesture.pinch_eligible)
-			tp_thumb_set_state(tp, first, THUMB_STATE_GESTURE);
-		else
-			tp_thumb_set_state(tp, first, THUMB_STATE_SUPPRESSED);
-		break;
 
 	case THUMB_STATE_REVIVED:
 	case THUMB_STATE_REV_JAILED:
