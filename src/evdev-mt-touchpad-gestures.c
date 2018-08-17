@@ -381,7 +381,12 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	dir2 = tp_gesture_get_direction(tp, second, tp->gesture.finger_count);
 	if (dir1 == UNDEFINED_DIRECTION || dir2 == UNDEFINED_DIRECTION)
 		return GESTURE_STATE_UNKNOWN;
+//TODO: Need a way for the pointer to keep moving if we rest a thumb. Even
+//if gesture state is Unknown, post motion? That didn't work too well, need
+//another solution
 
+//TODO: Scrolls really need to have fingers *moving together*. We don't want
+//false positive scrolls involving one moving finger and one still finger.
 	/* If both touches are moving in the same direction, or if we don't
 	 * have enough slots, assume scroll or swipe */
 	if (tp->gesture.finger_count > tp->num_slots ||
