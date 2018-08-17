@@ -265,7 +265,6 @@ tp_gesture_check_for_pinch_eligibility(struct tp_dispatch *tp)
 
 			if (length_in_mm(mm) > PINCH_THRESHOLD) {
 				t->gesture.pinch_eligible = false;
-				printf("Setting touch pinch-ineligible\n");
 			}
 		}
 	}
@@ -362,12 +361,7 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	struct tp_touch *first = tp->gesture.touches[0],
 			*second = tp->gesture.touches[1];
 	uint32_t dir1, dir2;
-	struct phys_coords mm;
-	int vert_distance, horiz_distance;
 	bool pinch_eligible;
-
-	vert_distance = abs(first->point.y - second->point.y);
-	horiz_distance = abs(first->point.x - second->point.x);
 
 	/* If a non-active thumb has been detected, cancel this gesture */
 	if (tp_thumb_update_unknown_gesture(tp)) {
@@ -388,20 +382,10 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	if (dir1 == UNDEFINED_DIRECTION || dir2 == UNDEFINED_DIRECTION)
 		return GESTURE_STATE_UNKNOWN;
 
-	/* If fingers are in a definitive pinch position, pinch */
-/*	mm = evdev_convert_xy_to_mm(tp->device, horiz_distance, vert_distance);
-	if (tp->gesture.finger_count == 2 &&
-	    mm.x > 50 && mm.y > 50 &&
-	    pinch_eligible) {
-		tp_gesture_init_pinch(tp);
-		return GESTURE_STATE_PINCH;
-	}
-*/
 	/* If both touches are moving in the same direction, or if we don't
 	 * have enough slots, assume scroll or swipe */
 	if (tp->gesture.finger_count > tp->num_slots ||
 	    tp_gesture_same_directions(dir1, dir2)) {
-printf("Same direction, %d fingers down\n", tp->nfingers_down);
 		if (tp->gesture.finger_count == 2) {
 			tp_gesture_set_scroll_buildup(tp);
 			return GESTURE_STATE_SCROLL;
@@ -412,9 +396,6 @@ printf("Same direction, %d fingers down\n", tp->nfingers_down);
 		tp_gesture_init_pinch(tp);
 		return GESTURE_STATE_PINCH;
 	}
-
-	if (!pinch_eligible)
-		printf("Pinch ineligible\n");
 
 	return GESTURE_STATE_UNKNOWN;
 }
@@ -428,7 +409,7 @@ tp_gesture_handle_state_scroll(struct tp_dispatch *tp, uint64_t time)
 	if (tp->scroll.method != LIBINPUT_CONFIG_SCROLL_2FG)
 		return GESTURE_STATE_SCROLL;
 
-// Need this here in case user puts down two fingers then lifts one up before pinch
+	/* Check for if user puts down two fingers then lifts one before pinch */
 	tp_gesture_check_for_pinch_eligibility(tp);
 
 	raw = tp_get_average_touches_delta(tp);
@@ -454,7 +435,7 @@ tp_gesture_handle_state_swipe(struct tp_dispatch *tp, uint64_t time)
 	struct device_float_coords raw;
 	struct normalized_coords delta, unaccel;
 
-// Need this here in case user puts down 3+ fingers then lifts one up before pinch
+	/* Check for if user puts down 3+ fingers then lifts one before pinch */
 	tp_gesture_check_for_pinch_eligibility(tp);
 
 	raw = tp_get_average_touches_delta(tp);
@@ -550,8 +531,10 @@ tp_gesture_post_events(struct tp_dispatch *tp, uint64_t time)
 	if (tp->gesture.finger_count == 0)
 		return;
 
-	/* When tap-and-dragging, or a clickpad is clicked force 1fg mode */
-	if (tp_tap_dragging(tp) || (tp->buttons.is_clickpad && tp->buttons.state)) {
+	/* When tap-and-dragging, force 1fg mode */
+//TODO: Check for side effects of allowing gestures while button down on
+//less capable hardware (limited slots, etc).
+	if (tp_tap_dragging(tp)) {
 		tp_gesture_cancel(tp, time);
 		tp->gesture.finger_count = 1;
 		tp->gesture.finger_count_pending = 0;

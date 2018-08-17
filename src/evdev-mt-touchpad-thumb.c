@@ -178,7 +178,6 @@ tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t)
 	case THUMB_STATE_GESTURE:
 	if (tp->nfingers_down == 1) {
 		t->thumb.initial = t->point;
-		printf("One finger down\n");
 		if (tp_thumb_needs_jail(tp, t))
 			tp_thumb_set_state(tp, t, THUMB_STATE_REV_JAILED);
 		else
@@ -333,9 +332,6 @@ tp_thumb_update_unknown_gesture(struct tp_dispatch *tp)
 	 * the gesture is cancelled.
 	 */
 
-// TODO: maybe use tp_gesture_get_direction to unify the thresholds? tp_g_g_d
-// used to be 1.0mm * (fingers - 1). I changed it for now to 1mm + (fingers -1)
-
 	temp_dist.x = abs(left->point.x - left->gesture.initial.x);
 	temp_dist.y = abs(left->point.y - left->gesture.initial.y);
 	temp_mm = evdev_device_unit_delta_to_mm(tp->device, &temp_dist);
@@ -345,9 +341,6 @@ tp_thumb_update_unknown_gesture(struct tp_dispatch *tp)
 	temp_dist.y = abs(right->point.y - right->gesture.initial.y);
 	temp_mm = evdev_device_unit_delta_to_mm(tp->device, &temp_dist);
 	right_moved = length_in_mm(temp_mm);
-
-//printf("left_moved %f left_spx %f   right_moved %f right_spx %f\n",
-//	left_moved, left->speed.last_speed, right_moved, right->speed.last_speed);
 
 	if ((left_moved <= THUMB_RADIUS && right_moved > THUMB_RADIUS &&
 	    right->speed.exceeded_count > 5 &&
