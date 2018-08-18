@@ -791,7 +791,7 @@ START_TEST(gestures_pinch_4fg)
 	litest_touch_down(dev, 3, 52 - dir_x, 52 - dir_y);
 	libinput_dispatch(li);
 
-	for (i = 0; i < 8; i++) {
+	for (i = 0; i < 7; i++) {
 		litest_push_event_frame(dev);
 		if (dir_x > 0.0)
 			dir_x -= 2;

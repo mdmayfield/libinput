@@ -196,20 +196,13 @@ tp_gesture_get_active_touches(const struct tp_dispatch *tp,
 }
 
 static uint32_t
-tp_gesture_get_direction(struct tp_dispatch *tp, struct tp_touch *touch,
-			 unsigned int nfingers)
+tp_gesture_get_direction(struct tp_dispatch *tp, struct tp_touch *touch)
 {
 	struct phys_coords mm;
 	struct device_float_coords delta;
-	double move_threshold = 1.0; /* mm */
-
-	move_threshold *= (nfingers - 1);
 
 	delta = device_delta(touch->point, touch->gesture.initial);
 	mm = tp_phys_delta(tp, delta);
-
-	if (length_in_mm(mm) < move_threshold)
-		return UNDEFINED_DIRECTION;
 
 	return phys_get_direction(mm);
 }
@@ -440,17 +433,11 @@ tp_gesture_handle_state_none(struct tp_dispatch *tp, uint64_t time)
 static inline int
 tp_gesture_same_directions(int dir1, int dir2)
 {
-	/*
-	 * In some cases (semi-mt touchpads) we may seen one finger move
-	 * e.g. N/NE and the other W/NW so we not only check for overlapping
-	 * directions, but also for neighboring bits being set.
-	 * The ((dira & 0x80) && (dirb & 0x01)) checks are to check for bit 0
-	 * and 7 being set as they also represent neighboring directions.
+	/* Since semi-MT touchpads are not supported for pinch gestures,
+	 * we can use a stricter check here than before.
 	 */
-	return ((dir1 | (dir1 >> 1)) & dir2) ||
-		((dir2 | (dir2 >> 1)) & dir1) ||
-		((dir1 & 0x80) && (dir2 & 0x01)) ||
-		((dir2 & 0x80) && (dir1 & 0x01));
+
+	return (dir1 & dir2);
 }
 
 static inline void
@@ -469,51 +456,56 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	struct tp_touch *first = tp->gesture.touches[0],
 			*second = tp->gesture.touches[1];
 	uint32_t dir1, dir2;
-	struct phys_coords mm;
-	int vert_distance, horiz_distance;
+	struct device_coords delta;
+	struct phys_coords first_moved, second_moved, distance_mm;
+	double first_mm, second_mm; /* Amount moved since gesture start */
+	double inner = 1.0; /* Inner threshold in mm - count this touch */
+	double outer = 3.0; /* Outer threshold in mm - ignore other touch */
 
-	vert_distance = abs(first->point.y - second->point.y);
-	horiz_distance = abs(first->point.x - second->point.x);
+	/* Need more margin for error when there are more fingers */
+	outer += (tp->gesture.finger_count - 1);
 
-	if (time > (tp->gesture.initial_time + DEFAULT_GESTURE_2FG_SCROLL_TIMEOUT)) {
-		/* for two-finger gestures, if the fingers stay unmoving for a
-		 * while, assume (slow) scroll */
-		if (tp->gesture.finger_count == 2) {
-			tp_gesture_set_scroll_buildup(tp);
-			return GESTURE_STATE_SCROLL;
-		/* more fingers than slots, don't bother with pinch, always
-		 * assume swipe */
-		} else if (tp->gesture.finger_count > tp->num_slots) {
-			return GESTURE_STATE_SWIPE;
-		}
+	delta.x = abs(first->point.x - first->gesture.initial.x);
+	delta.y = abs(first->point.y - first->gesture.initial.y);
+	first_moved = evdev_device_unit_delta_to_mm(tp->device, &delta);
+	first_mm = hypot(first_moved.x, first_moved.y);
 
-		/* for 3+ finger gestures, check if one finger is > 20mm
-		   below the others */
-		mm = evdev_convert_xy_to_mm(tp->device,
-					    horiz_distance,
-					    vert_distance);
-		if (mm.y > 20 && tp->gesture.enabled) {
-			tp_gesture_init_pinch(tp);
-			return GESTURE_STATE_PINCH;
-		} else {
-			return GESTURE_STATE_SWIPE;
-		}
+	delta.x = abs(second->point.x - second->gesture.initial.x);
+	delta.y = abs(second->point.y - second->gesture.initial.y);
+	second_moved = evdev_device_unit_delta_to_mm(tp->device, &delta);
+	second_mm = hypot(second_moved.x, second_moved.y);
+
+	delta.x = abs(first->point.x - second->point.x);
+	delta.y = abs(first->point.y - second->point.y);
+	distance_mm = evdev_device_unit_delta_to_mm(tp->device, &delta);
+
+	/* If one touch exceeds the outer threshold while the other has not
+	 * yet passed the inner threshold, this is likely not a valid gesture.
+	 * If thumb detection is enabled, and one of the touches is >20mm
+	 * below the other, cancel the gesture and mark the thumb.
+	 */
+	if ((((first_mm >= outer) && (second_mm < inner)) ||
+	    ((second_mm >= outer) && (first_mm < inner))) &&
+	    tp->thumb.detect_thumbs && distance_mm.y > 20.0) {
+		tp_gesture_cancel(tp, time);
+		if (first->point.y >= second->point.y)
+			first->thumb.state = THUMB_STATE_YES;
+		else
+			second->thumb.state = THUMB_STATE_YES;
+		return GESTURE_STATE_NONE;
 	}
 
-	if (time > (tp->gesture.initial_time + DEFAULT_GESTURE_2FG_SCROLL_TIMEOUT)) {
-		mm = evdev_convert_xy_to_mm(tp->device, horiz_distance, vert_distance);
-		if (tp->gesture.finger_count == 2 && mm.x > 40 && mm.y > 40)
-			return GESTURE_STATE_PINCH;
-	}
-
-	/* Else wait for both fingers to have moved */
-	dir1 = tp_gesture_get_direction(tp, first, tp->gesture.finger_count);
-	dir2 = tp_gesture_get_direction(tp, second, tp->gesture.finger_count);
-	if (dir1 == UNDEFINED_DIRECTION || dir2 == UNDEFINED_DIRECTION)
+	/* If either touch is still inside the inner threshold, we can't
+	 * tell what kind of gesture this is, if any.
+	 */
+	if ((first_mm < inner) || (second_mm < inner))
 		return GESTURE_STATE_UNKNOWN;
 
 	/* If both touches are moving in the same direction assume
 	 * scroll or swipe */
+	dir1 = tp_gesture_get_direction(tp, first);
+	dir2 = tp_gesture_get_direction(tp, second);
+
 	if (tp->gesture.finger_count > tp->num_slots ||
 	    tp_gesture_same_directions(dir1, dir2)) {
 		if (tp->gesture.finger_count == 2) {
@@ -772,6 +764,10 @@ tp_gesture_handle_state(struct tp_dispatch *tp, uint64_t time)
 		} else if (!tp->gesture.started) {
 			tp->gesture.finger_count = active_touches;
 			tp->gesture.finger_count_pending = 0;
+			/* If in UNKNOWN state, go back to NONE to
+			 * re-evaluate leftmost and rightmost touches
+			 */
+			tp->gesture.state = GESTURE_STATE_NONE;
 		/* Else debounce finger changes */
 		} else if (active_touches != tp->gesture.finger_count_pending) {
 			tp->gesture.finger_count_pending = active_touches;
