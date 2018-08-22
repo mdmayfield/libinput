@@ -1136,9 +1136,10 @@ tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	    t->pressure > tp->thumb.pressure_threshold)
 		t->thumb.state = THUMB_STATE_YES;
 	else if (tp->thumb.use_size &&
-		 (t->major > tp->thumb.size_threshold ||
-		  t->minor > tp->thumb.size_threshold))
+		 (t->major > tp->thumb.size_threshold) &&
+		 (t->minor < ((double)tp->thumb.size_threshold * 0.6))) {
 		t->thumb.state = THUMB_STATE_YES;
+		}
 	else if (t->point.y > tp->thumb.lower_thumb_line &&
 		 tp->scroll.method != LIBINPUT_CONFIG_SCROLL_EDGE &&
 		 t->thumb.first_touch_time + THUMB_MOVE_TIMEOUT < time)
