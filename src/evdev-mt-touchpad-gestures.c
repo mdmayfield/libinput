@@ -30,8 +30,8 @@
 #include "evdev-mt-touchpad.h"
 
 #define DEFAULT_GESTURE_SWITCH_TIMEOUT ms2us(100)
-#define DEFAULT_GESTURE_2FG_SCROLL_TIMEOUT ms2us(150)
-#define DEFAULT_GESTURE_PINCH_TIMEOUT ms2us(150)
+#define DEFAULT_GESTURE_SWIPE_TIMEOUT ms2us(150)
+#define DEFAULT_GESTURE_PINCH_TIMEOUT ms2us(250)
 
 static inline const char*
 gesture_state_to_str(enum tp_gesture_state state)
@@ -490,7 +490,7 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	 * assume (slow) scroll
 	 */
 	if (distance_mm.y < 7.0 &&
-	    time > (tp->gesture.initial_time + DEFAULT_GESTURE_2FG_SCROLL_TIMEOUT)) {
+	    time > (tp->gesture.initial_time + DEFAULT_GESTURE_SWIPE_TIMEOUT)) {
 		tp->gesture.initial_time = time;
 		if (tp->gesture.finger_count == 2) {
 			tp_gesture_set_scroll_buildup(tp);
@@ -593,6 +593,7 @@ tp_gesture_handle_state_scroll(struct tp_dispatch *tp, uint64_t time)
 	if (tp_gesture_detect_pinch_in_swipe(tp, time)) {
 		tp_gesture_cancel(tp, time);
 		tp_gesture_init_pinch(tp);
+		tp->gesture.initial_time = time;
 		return GESTURE_STATE_PINCH;
 	}
 
@@ -623,6 +624,7 @@ tp_gesture_handle_state_swipe(struct tp_dispatch *tp, uint64_t time)
 	if (tp_gesture_detect_pinch_in_swipe(tp, time)) {
 		tp_gesture_cancel(tp, time);
 		tp_gesture_init_pinch(tp);
+		tp->gesture.initial_time = time;
 		return GESTURE_STATE_PINCH;
 	}
 
@@ -648,9 +650,40 @@ tp_gesture_handle_state_pinch(struct tp_dispatch *tp, uint64_t time)
 	struct device_float_coords center, fdelta;
 	struct normalized_coords delta, unaccel;
 
-	// TODO Use same routine as in handle_state_scroll to see if the lower
-	// touch hasn't moved more than y mm in x ms, and if so, cancel
-	// swipe and mark lower touch as thumb.
+	/* If thumb detection is enabled, watch for a mis-identified gesture.
+	 * This often happens when the user rests a thumb at almost the same
+	 * time as putting a finger down to move the cursor. The thumb slides
+	 * slightly, causing a pinch to be identified, but immediately comes
+	 * to a stop. Here we use a short timeout to watch for a still thumb
+	 * and moving finger.
+	 */
+	if (tp->thumb.detect_thumbs &&
+	    time < tp->gesture.initial_time + DEFAULT_GESTURE_PINCH_TIMEOUT) {
+		struct tp_touch *first = tp->gesture.touches[0],
+				*second = tp->gesture.touches[1],
+				*lowest, *highest;
+		struct phys_coords thumb_moved, finger_moved, distance_mm;
+		struct device_coords delta;
+
+		lowest = first->point.y > second->point.y ? first : second;
+		highest = first->point.y > second->point.y ? second : first;
+		thumb_moved = tp_gesture_mm_moved(tp, lowest);
+		finger_moved = tp_gesture_mm_moved(tp, highest);
+
+		delta.x = abs(first->point.x - second->point.x);
+		delta.y = abs(first->point.y - second->point.y);
+		distance_mm = evdev_device_unit_delta_to_mm(tp->device, &delta);
+
+		if (distance_mm.y > 20 &&
+		    (hypot(thumb_moved.x, thumb_moved.y) < 8.0) &&
+		    (hypot(finger_moved.x, finger_moved.y) > 16.0)) {
+			tp_gesture_cancel(tp, time);
+			lowest->thumb.state = THUMB_STATE_YES; // TODO state
+			return GESTURE_STATE_NONE;
+		}
+
+	}
+
 
 	tp_gesture_get_pinch_info(tp, &distance, &angle, &center);
 
