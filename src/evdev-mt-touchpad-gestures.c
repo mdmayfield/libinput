@@ -31,7 +31,7 @@
 
 #define DEFAULT_GESTURE_SWITCH_TIMEOUT ms2us(100)
 #define DEFAULT_GESTURE_2FG_SCROLL_TIMEOUT ms2us(150)
-#define DEFAULT_GESTURE_2FG_PINCH_TIMEOUT ms2us(75)
+#define DEFAULT_GESTURE_PINCH_TIMEOUT ms2us(150)
 
 static inline const char*
 gesture_state_to_str(enum tp_gesture_state state)
@@ -450,6 +450,17 @@ tp_gesture_init_pinch(struct tp_dispatch *tp)
 	tp->gesture.prev_scale = 1.0;
 }
 
+static struct phys_coords
+tp_gesture_mm_moved(struct tp_dispatch *tp, struct tp_touch *t)
+{
+	struct device_coords delta;
+
+	delta.x = abs(t->point.x - t->gesture.initial.x);
+	delta.y = abs(t->point.y - t->gesture.initial.y);
+
+	return evdev_device_unit_delta_to_mm(tp->device, &delta);
+}
+
 static enum tp_gesture_state
 tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 {
@@ -460,28 +471,27 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	struct phys_coords first_moved, second_moved, distance_mm;
 	double first_mm, second_mm; /* Amount moved since gesture start */
 	double inner = 1.0; /* Inner threshold in mm - count this touch */
-	double outer = 3.0; /* Outer threshold in mm - ignore other touch */
+	double outer = 4.0; /* Outer threshold in mm - ignore other touch */
 
 	/* Need more margin for error when there are more fingers */
 	outer += (tp->gesture.finger_count - 1);
 
-	delta.x = abs(first->point.x - first->gesture.initial.x);
-	delta.y = abs(first->point.y - first->gesture.initial.y);
-	first_moved = evdev_device_unit_delta_to_mm(tp->device, &delta);
+	first_moved = tp_gesture_mm_moved(tp, first);
 	first_mm = hypot(first_moved.x, first_moved.y);
 
-	delta.x = abs(second->point.x - second->gesture.initial.x);
-	delta.y = abs(second->point.y - second->gesture.initial.y);
-	second_moved = evdev_device_unit_delta_to_mm(tp->device, &delta);
+	second_moved = tp_gesture_mm_moved(tp, second);
 	second_mm = hypot(second_moved.x, second_moved.y);
 
 	delta.x = abs(first->point.x - second->point.x);
 	delta.y = abs(first->point.y - second->point.y);
 	distance_mm = evdev_device_unit_delta_to_mm(tp->device, &delta);
 
-	/* If both touches are within 7mm vertically, assume scroll/swipe
+	/* If both touches remain within 7mm vertically past the timeout,
+	 * assume (slow) scroll
 	 */
-	if (distance_mm.y < 7.0) {
+	if (distance_mm.y < 7.0 &&
+	    time > (tp->gesture.initial_time + DEFAULT_GESTURE_2FG_SCROLL_TIMEOUT)) {
+		tp->gesture.initial_time = time;
 		if (tp->gesture.finger_count == 2) {
 			tp_gesture_set_scroll_buildup(tp);
 			return GESTURE_STATE_SCROLL;
@@ -503,14 +513,14 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 		   ((first_mm >= outer * 2.0) ||
 		   (second_mm >= outer))) {
 			tp_gesture_cancel(tp, time);
-			first->thumb.state = THUMB_STATE_YES;
+			first->thumb.state = THUMB_STATE_YES; // TODO state
 			return GESTURE_STATE_NONE;
 		}
 		if ((second->point.y >= first->point.y) &&
 		    ((second_mm >= outer * 2.0) ||
 		    (first_mm >= outer))) {
 			tp_gesture_cancel(tp, time);
-			second->thumb.state = THUMB_STATE_YES;
+			second->thumb.state = THUMB_STATE_YES; // TODO state
 			return GESTURE_STATE_NONE;
 		}
 	}
@@ -521,8 +531,11 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	if ((first_mm < inner) || (second_mm < inner))
 		return GESTURE_STATE_UNKNOWN;
 
-	/* Both touches have exceeded the inner threshold; get their directions
+	/* Both touches have exceeded the inner threshold, so we have a valid
+	 * gesture. Update gesture initial time and get directions so we know
+	 * if it's a pinch or swipe/scroll.
 	 */
+	tp->gesture.initial_time = time;
 	dir1 = tp_gesture_get_direction(tp, first);
 	dir2 = tp_gesture_get_direction(tp, second);
 
@@ -545,6 +558,29 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	return GESTURE_STATE_PINCH;
 }
 
+static bool
+tp_gesture_detect_pinch_in_swipe(struct tp_dispatch *tp, uint64_t time)
+{
+	/* It's common for a pinch gesture to start with the touches moving
+	 * in the same direction for a couple of events. Here we allow a brief
+	 * grace period to correct pinches misidentified as scrolls/swipes.
+	 */
+
+	if (tp->gesture.finger_count <= tp->num_slots &&
+	    time < tp->gesture.initial_time + DEFAULT_GESTURE_PINCH_TIMEOUT) {
+		struct tp_touch *first = tp->gesture.touches[0],
+				*second = tp->gesture.touches[1];
+		uint32_t dir1, dir2;
+		dir1 = tp_gesture_get_direction(tp, first);
+		dir2 = tp_gesture_get_direction(tp, second);
+
+		if (!tp_gesture_same_directions(dir1, dir2))
+			return true;
+	}
+
+	return false;
+}
+
 static enum tp_gesture_state
 tp_gesture_handle_state_scroll(struct tp_dispatch *tp, uint64_t time)
 {
@@ -553,6 +589,12 @@ tp_gesture_handle_state_scroll(struct tp_dispatch *tp, uint64_t time)
 
 	if (tp->scroll.method != LIBINPUT_CONFIG_SCROLL_2FG)
 		return GESTURE_STATE_SCROLL;
+
+	if (tp_gesture_detect_pinch_in_swipe(tp, time)) {
+		tp_gesture_cancel(tp, time);
+		tp_gesture_init_pinch(tp);
+		return GESTURE_STATE_PINCH;
+	}
 
 	raw = tp_get_average_touches_delta(tp);
 
@@ -578,6 +620,12 @@ tp_gesture_handle_state_swipe(struct tp_dispatch *tp, uint64_t time)
 	struct device_float_coords raw;
 	struct normalized_coords delta, unaccel;
 
+	if (tp_gesture_detect_pinch_in_swipe(tp, time)) {
+		tp_gesture_cancel(tp, time);
+		tp_gesture_init_pinch(tp);
+		return GESTURE_STATE_PINCH;
+	}
+
 	raw = tp_get_average_touches_delta(tp);
 	delta = tp_filter_motion(tp, &raw, time);
 
@@ -599,6 +647,10 @@ tp_gesture_handle_state_pinch(struct tp_dispatch *tp, uint64_t time)
 	double angle, angle_delta, distance, scale;
 	struct device_float_coords center, fdelta;
 	struct normalized_coords delta, unaccel;
+
+	// TODO Use same routine as in handle_state_scroll to see if the lower
+	// touch hasn't moved more than y mm in x ms, and if so, cancel
+	// swipe and mark lower touch as thumb.
 
 	tp_gesture_get_pinch_info(tp, &distance, &angle, &center);
 
