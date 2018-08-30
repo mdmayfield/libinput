@@ -470,8 +470,8 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	struct device_coords delta;
 	struct phys_coords first_moved, second_moved, distance_mm;
 	double first_mm, second_mm; /* Amount moved since gesture start */
-	double inner = 1.0; /* Inner threshold in mm - count this touch */
-	double outer = 4.0; /* Outer threshold in mm - ignore other touch */
+	double inner = 1.5; /* Inner threshold in mm - count this touch */
+	double outer = 3.0; /* Outer threshold in mm - ignore other touch */
 
 	/* Need more margin for error when there are more fingers */
 	outer += (tp->gesture.finger_count - 1);
@@ -574,8 +574,12 @@ tp_gesture_detect_pinch_in_swipe(struct tp_dispatch *tp, uint64_t time)
 		dir1 = tp_gesture_get_direction(tp, first);
 		dir2 = tp_gesture_get_direction(tp, second);
 
-		if (!tp_gesture_same_directions(dir1, dir2))
+		if (!tp_gesture_same_directions(dir1, dir2)) {
+			tp_gesture_cancel(tp, time);
+			tp_gesture_init_pinch(tp);
+			tp->gesture.initial_time = time;
 			return true;
+		}
 	}
 
 	return false;
@@ -590,12 +594,8 @@ tp_gesture_handle_state_scroll(struct tp_dispatch *tp, uint64_t time)
 	if (tp->scroll.method != LIBINPUT_CONFIG_SCROLL_2FG)
 		return GESTURE_STATE_SCROLL;
 
-	if (tp_gesture_detect_pinch_in_swipe(tp, time)) {
-		tp_gesture_cancel(tp, time);
-		tp_gesture_init_pinch(tp);
-		tp->gesture.initial_time = time;
+	if (tp_gesture_detect_pinch_in_swipe(tp, time))
 		return GESTURE_STATE_PINCH;
-	}
 
 	raw = tp_get_average_touches_delta(tp);
 
@@ -621,12 +621,8 @@ tp_gesture_handle_state_swipe(struct tp_dispatch *tp, uint64_t time)
 	struct device_float_coords raw;
 	struct normalized_coords delta, unaccel;
 
-	if (tp_gesture_detect_pinch_in_swipe(tp, time)) {
-		tp_gesture_cancel(tp, time);
-		tp_gesture_init_pinch(tp);
-		tp->gesture.initial_time = time;
+	if (tp_gesture_detect_pinch_in_swipe(tp, time))
 		return GESTURE_STATE_PINCH;
-	}
 
 	raw = tp_get_average_touches_delta(tp);
 	delta = tp_filter_motion(tp, &raw, time);
