@@ -31,7 +31,7 @@
 
 #define DEFAULT_GESTURE_SWITCH_TIMEOUT ms2us(100)
 #define DEFAULT_GESTURE_SWIPE_TIMEOUT ms2us(150)
-#define DEFAULT_GESTURE_PINCH_TIMEOUT ms2us(250)
+#define DEFAULT_GESTURE_PINCH_TIMEOUT ms2us(150)
 
 static inline const char*
 gesture_state_to_str(enum tp_gesture_state state)
@@ -486,10 +486,13 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	delta.y = abs(first->point.y - second->point.y);
 	distance_mm = evdev_device_unit_delta_to_mm(tp->device, &delta);
 
-	/* If both touches remain within 7mm vertically past the timeout,
-	 * assume (slow) scroll
+	/* If either thumb detection is disabled, or touches are within 7mm
+	 * vertically, assume scroll/swipe after a short timeout. This enhances
+	 * responsiveness for proper two-finger scrolling with slow motion, and
+	 * enables "one-finger scrolling" on limited touchpads - while still
+	 * allowing enhanced thumb detection on hardware that supports it.
 	 */
-	if (distance_mm.y < 7.0 &&
+	if ((!tp->thumb.detect_thumbs || distance_mm.y < 7.0) &&
 	    time > (tp->gesture.initial_time + DEFAULT_GESTURE_SWIPE_TIMEOUT)) {
 		tp->gesture.initial_time = time;
 		if (tp->gesture.finger_count == 2) {
@@ -501,11 +504,12 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	}
 
 	/* If one touch exceeds the outer threshold while the other has not
-	 * yet passed the inner threshold, this is not a valid gesture.
+	 * yet passed the inner threshold, there is a resting thumb.
+	 *
 	 * If thumb detection is enabled, and one of the touches is >20mm
 	 * below the other, cancel the gesture and mark the thumb.
 	 *
-	 * Give the thumb a larger effective outer threshold for more reliable
+	 * Give the thumb 2x the outer threshold size, for more reliable
 	 * detection of pinch vs. resting thumb.
 	 */
 	if (tp->thumb.detect_thumbs && distance_mm.y > 20.0) {
@@ -645,41 +649,6 @@ tp_gesture_handle_state_pinch(struct tp_dispatch *tp, uint64_t time)
 	double angle, angle_delta, distance, scale;
 	struct device_float_coords center, fdelta;
 	struct normalized_coords delta, unaccel;
-
-	/* If thumb detection is enabled, watch for a mis-identified gesture.
-	 * This often happens when the user rests a thumb at almost the same
-	 * time as putting a finger down to move the cursor. The thumb slides
-	 * slightly, causing a pinch to be identified, but immediately comes
-	 * to a stop. Here we use a short timeout to watch for a still thumb
-	 * and moving finger.
-	 */
-	if (tp->thumb.detect_thumbs &&
-	    time < tp->gesture.initial_time + DEFAULT_GESTURE_PINCH_TIMEOUT) {
-		struct tp_touch *first = tp->gesture.touches[0],
-				*second = tp->gesture.touches[1],
-				*lowest, *highest;
-		struct phys_coords thumb_moved, finger_moved, distance_mm;
-		struct device_coords delta;
-
-		lowest = first->point.y > second->point.y ? first : second;
-		highest = first->point.y > second->point.y ? second : first;
-		thumb_moved = tp_gesture_mm_moved(tp, lowest);
-		finger_moved = tp_gesture_mm_moved(tp, highest);
-
-		delta.x = abs(first->point.x - second->point.x);
-		delta.y = abs(first->point.y - second->point.y);
-		distance_mm = evdev_device_unit_delta_to_mm(tp->device, &delta);
-
-		if (distance_mm.y > 20 &&
-		    (hypot(thumb_moved.x, thumb_moved.y) < 8.0) &&
-		    (hypot(finger_moved.x, finger_moved.y) > 16.0)) {
-			tp_gesture_cancel(tp, time);
-			lowest->thumb.state = THUMB_STATE_YES; // TODO state
-			return GESTURE_STATE_NONE;
-		}
-
-	}
-
 
 	tp_gesture_get_pinch_info(tp, &distance, &angle, &center);
 
