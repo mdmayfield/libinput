@@ -137,12 +137,6 @@ enum tp_gesture_state {
 	GESTURE_STATE_SWIPE,
 };
 
-enum tp_thumb_state {
-	THUMB_STATE_NO,
-	THUMB_STATE_YES,
-	THUMB_STATE_MAYBE,
-};
-
 struct tp_touch {
 	struct tp_dispatch *tp;
 	unsigned int index;
@@ -228,12 +222,6 @@ struct tp_touch {
 	struct {
 		struct device_coords initial;
 	} gesture;
-
-	struct {
-		enum tp_thumb_state state;
-		uint64_t first_touch_time;
-		struct device_coords initial;
-	} thumb;
 
 	struct {
 		double last_speed; /* speed in mm/s at last sample */
@@ -449,6 +437,12 @@ struct tp_dispatch {
 
 		bool use_size;
 		int size_threshold;
+
+		bool ignore;
+		bool was_thumb;
+		bool pinch_eligible;
+		int boundary;
+		unsigned int index;
 	} thumb;
 
 	struct {
@@ -544,7 +538,16 @@ tp_filter_motion_unaccelerated(struct tp_dispatch *tp,
 			       uint64_t time);
 
 bool
+tp_thumb_ignore(const struct tp_dispatch *tp, const struct tp_touch *t);
+
+bool
 tp_touch_active(const struct tp_dispatch *tp, const struct tp_touch *t);
+
+void
+tp_thumb_deactivate(struct tp_dispatch *tp, struct tp_touch *t);
+
+bool
+tp_touch_gesture_active(const struct tp_dispatch *tp, const struct tp_touch *t);
 
 int
 tp_tap_handle_state(struct tp_dispatch *tp, uint64_t time);

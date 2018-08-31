@@ -328,8 +328,6 @@ tp_begin_touch(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	t->was_down = true;
 	tp->nfingers_down++;
 	t->palm.time = time;
-	t->thumb.state = THUMB_STATE_MAYBE;
-	t->thumb.first_touch_time = time;
 	t->tap.is_thumb = false;
 	t->tap.is_palm = false;
 	assert(tp->nfingers_down >= 1);
@@ -706,12 +704,38 @@ tp_pin_fingers(struct tp_dispatch *tp)
 }
 
 bool
+tp_thumb_ignore(const struct tp_dispatch *tp, const struct tp_touch *t)
+{
+	return (tp->thumb.detect_thumbs &&
+		(tp->thumb.index == t->index) &&
+		tp->thumb.ignore);
+}
+
+static bool
+tp_thumb_ignore_gesture(const struct tp_dispatch *tp, const struct tp_touch *t)
+{
+	return (tp_thumb_ignore(tp, t) && tp->thumb.was_thumb);
+}
+
+
+bool
 tp_touch_active(const struct tp_dispatch *tp, const struct tp_touch *t)
 {
 	return (t->state == TOUCH_BEGIN || t->state == TOUCH_UPDATE) &&
 		t->palm.state == PALM_NONE &&
 		!t->pinned.is_pinned &&
-		t->thumb.state != THUMB_STATE_YES &&
+		!tp_thumb_ignore(tp, t) &&
+		tp_button_touch_active(tp, t) &&
+		tp_edge_scroll_touch_active(tp, t);
+}
+
+bool
+tp_touch_gesture_active(const struct tp_dispatch *tp, const struct tp_touch *t)
+{
+	return (t->state == TOUCH_BEGIN || t->state == TOUCH_UPDATE) &&
+		t->palm.state == PALM_NONE &&
+		!t->pinned.is_pinned &&
+		!tp_thumb_ignore_gesture(tp, t) &&
 		tp_button_touch_active(tp, t) &&
 		tp_edge_scroll_touch_active(tp, t);
 }
@@ -1082,86 +1106,140 @@ out:
 		  palm_state);
 }
 
-static inline const char*
-thumb_state_to_str(enum tp_thumb_state state)
+static bool
+tp_thumb_hw_finger(struct tp_dispatch *tp, struct tp_touch *t)
 {
-	switch(state){
-	CASE_RETURN_STRING(THUMB_STATE_NO);
-	CASE_RETURN_STRING(THUMB_STATE_YES);
-	CASE_RETURN_STRING(THUMB_STATE_MAYBE);
-	}
+	/* Size detection: reliable even at the edge of the touchpad; if size
+	 * and shape confirm finger, return true
+	 */
+	if (tp->thumb.use_size &&
+	    ((t->major <= tp->thumb.size_threshold) ||
+	    (t->minor >= (tp->thumb.size_threshold * 0.6))))
+		return true;
 
-	return NULL;
+	/* Pressure detection: not reliable at the edges; only return true if
+	 * the touch is above the lower_thumb_line
+	 */
+	if (tp->thumb.use_pressure &&
+	    t->pressure <= tp->thumb.pressure_threshold &&
+	    t->point.y < tp->thumb.lower_thumb_line)
+		return true;
+
+	/* Otherwise, we either have no hardware to confirm this is a finger,
+	 * or hardware is saying we have a thumb.
+	 */
+	return false;
+}
+
+void
+tp_thumb_deactivate(struct tp_dispatch *tp, struct tp_touch *t)
+{
+	/* TODO: robust-ify this further */
+	tp->thumb.index = t->index;
+	tp->thumb.ignore = true;
+	tp->thumb.boundary = 0;
 }
 
 static void
-tp_thumb_detect(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
+tp_thumb_activate(struct tp_dispatch *tp, struct tp_touch *t)
 {
-	enum tp_thumb_state state = t->thumb.state;
-
-	/* once a thumb, always a thumb, once ruled out always ruled out */
-	if (!tp->thumb.detect_thumbs ||
-	    t->thumb.state != THUMB_STATE_MAYBE)
+	/* This touch really needs to be the thumb */
+	if (tp->thumb.index != t->index) {
+		evdev_log_bug_libinput(tp->device,
+				       "touch %d: can't activate non-thumb\n",
+				       t->index);
 		return;
-
-	if (t->point.y < tp->thumb.upper_thumb_line) {
-		/* if a potential thumb is above the line, it won't ever
-		 * label as thumb */
-		t->thumb.state = THUMB_STATE_NO;
-		goto out;
 	}
 
-	/* If the thumb moves by more than 7mm, it's not a resting thumb */
-	if (t->state == TOUCH_BEGIN)
-		t->thumb.initial = t->point;
-	else if (t->state == TOUCH_UPDATE) {
-		struct device_float_coords delta;
-		struct phys_coords mm;
+	/* If this touch is already active, do nothing */
+	if (!tp->thumb.ignore)
+		return;
 
-		delta = device_delta(t->point, t->thumb.initial);
-		mm = tp_phys_delta(tp, delta);
-		if (length_in_mm(mm) > 7) {
-			t->thumb.state = THUMB_STATE_NO;
-			goto out;
+	/* A touch confirmed as a thumb has only one chance to reactivate as a
+	 * finger (not counting its time as the only touch)
+	 */
+	if (tp->thumb.was_thumb && tp->thumb.ignore)
+		return;
+
+	/* If there's a boundary, this touch gets a free pass because it's the
+	 * first active touch
+	 */
+	if (!tp->thumb.boundary)
+		tp->thumb.was_thumb = true;
+	tp->thumb.ignore = false;
+	tp->thumb.boundary = 0;
+}
+
+static void
+tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
+{
+	bool hw_finger = false;
+
+	if (!tp->thumb.detect_thumbs)
+		return;
+
+	/* Once any active touch exceeds the speed threshold, don't
+	 * try to detect pinches until all touches lift.
+	 */
+	if (t->speed.exceeded_count >= 5)
+		tp->thumb.pinch_eligible = false;
+
+	/* If a boundary is set, and this touch is a suspected thumb *and* the
+	 * only finger down, give it a chance to become active by breaking the
+	 * boundary and/or exceeding the speed threshold.
+	 */
+	if (tp->thumb.boundary && tp->nfingers_down == 1) {
+		if (t->speed.exceeded_count >= 5 ||
+		    t->point.y < tp->thumb.boundary) {
+			tp_thumb_activate(tp, t);
+			return;
 		}
 	}
 
-	/* Note: a thumb at the edge of the touchpad won't trigger the
-	 * threshold, the surface area is usually too small. So we have a
-	 * two-stage detection: pressure and time within the area.
-	 * A finger that remains at the very bottom of the touchpad becomes
-	 * a thumb.
+	/* If this touch is not new, all its thumb updates happen elsewhere */
+	if (t->state != TOUCH_BEGIN)
+		return;
+
+	/* Thumb boundary only counts for the first active touch. Once we have
+	 * 2+ touches, the suspect thumb is no longer eligible to become active
+	 * that way.
+	 * 
+	 * If this touch is not 1st, all other thumb updates happen elsewhere.
 	 */
-	if (tp->thumb.use_pressure &&
-	    t->pressure > tp->thumb.pressure_threshold) {
-		t->thumb.state = THUMB_STATE_YES;
-	} else if (tp->thumb.use_size &&
-		 (t->major > tp->thumb.size_threshold) &&
-		 (t->minor < (tp->thumb.size_threshold * 0.6))) {
-		t->thumb.state = THUMB_STATE_YES;
-	} else if (t->point.y > tp->thumb.lower_thumb_line &&
-		 tp->scroll.method != LIBINPUT_CONFIG_SCROLL_EDGE &&
-		 t->thumb.first_touch_time + THUMB_MOVE_TIMEOUT < time) {
-		t->thumb.state = THUMB_STATE_YES;
+	if (tp->nfingers_down > 1) {
+		tp->thumb.boundary = 0;
+		return;
 	}
 
-	/* now what? we marked it as thumb, so:
-	 *
-	 * - pointer motion must ignore this touch
-	 * - clickfinger must ignore this touch for finger count
-	 * - software buttons are unaffected
-	 * - edge scrolling unaffected
-	 * - gestures: unaffected
-	 * - tapping: honour thumb on begin, ignore it otherwise for now,
-	 *   this gets a tad complicated otherwise
+	/* If this new touch is the first, reset thumb flags */
+	tp->thumb.pinch_eligible = true;	
+	tp->thumb.ignore = false;
+	tp->thumb.was_thumb = false;
+	tp->thumb.boundary = 0;
+	tp->thumb.index = UINT_MAX;
+
+	/* Determine initial thumb status. If above the upper thumb line,
+	 * allow this touch to be active
 	 */
-out:
-	if (t->thumb.state != state)
-		evdev_log_debug(tp->device,
-			  "thumb state: touch %d, %s → %s\n",
-			  t->index,
-			  thumb_state_to_str(state),
-			  thumb_state_to_str(t->thumb.state));
+	if (t->point.y < tp->thumb.upper_thumb_line)
+		return;
+
+	/* If hardware can tell us that it's a finger, and it's above the lower
+	 * thumb line, it's an active finger
+	 */
+	hw_finger = tp_thumb_hw_finger(tp, t);
+
+	if (hw_finger && t->point.y < tp->thumb.lower_thumb_line)
+		return;
+
+	/* Otherwise, we have a thumb on our hands. Even HW-detected fingers
+	 * count as thumbs below the lower_thumb_line, but only have to exceed
+	 * that lower boundary to activate.
+	 */
+	tp->thumb.ignore = true;
+	tp->thumb.index = t->index;
+	tp->thumb.boundary = hw_finger ? tp->thumb.lower_thumb_line :
+					 tp->thumb.upper_thumb_line;
 }
 
 static void
@@ -1524,7 +1602,7 @@ tp_detect_thumb_while_moving(struct tp_dispatch *tp)
 	evdev_log_debug(tp->device,
 			"touch %d is speed-based thumb\n",
 			second->index);
-	second->thumb.state = THUMB_STATE_YES;
+	tp_thumb_deactivate(tp, second);
 }
 
 static void
@@ -1591,7 +1669,7 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 			tp_motion_history_reset(t);
 		}
 
-		tp_thumb_detect(tp, t, time);
+		tp_thumb_update(tp, t, time);
 		tp_palm_detect(tp, t, time);
 		tp_detect_wobbling(tp, t, time);
 		tp_motion_hysteresis(tp, t);
@@ -1628,7 +1706,7 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 			restart_filter = true;
 		}
 	}
-
+//TODO: thumb update around here
 	/* If we have one touch that exceeds the speed and we get a new
 	 * touch down while doing that, the second touch is a thumb */
 	if (have_new_touch &&
@@ -1668,6 +1746,7 @@ tp_post_process_state(struct tp_dispatch *tp, uint64_t time)
 		if (t->state == TOUCH_END) {
 			if (t->has_ended)
 				t->state = TOUCH_NONE;
+				// TODO: thumb update here
 			else
 				t->state = TOUCH_HOVERING;
 		} else if (t->state == TOUCH_BEGIN) {
