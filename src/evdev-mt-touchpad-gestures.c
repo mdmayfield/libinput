@@ -575,33 +575,6 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	return GESTURE_STATE_PINCH;
 }
 
-static bool
-tp_gesture_detect_pinch_in_swipe(struct tp_dispatch *tp, uint64_t time)
-{
-	/* It's common for a pinch gesture to start with the touches moving
-	 * in the same direction for a couple of events. Here we allow a brief
-	 * grace period to correct pinches misidentified as scrolls/swipes.
-	 */
-
-	if (tp->gesture.finger_count <= tp->num_slots &&
-	    time < tp->gesture.initial_time + DEFAULT_GESTURE_PINCH_TIMEOUT) {
-		struct tp_touch *first = tp->gesture.touches[0],
-				*second = tp->gesture.touches[1];
-		uint32_t dir1, dir2;
-		dir1 = tp_gesture_get_direction(tp, first);
-		dir2 = tp_gesture_get_direction(tp, second);
-
-		if (!tp_gesture_same_directions(dir1, dir2)) {
-			tp_gesture_cancel(tp, time);
-			tp_gesture_init_pinch(tp);
-			tp->gesture.initial_time = time;
-			return true;
-		}
-	}
-
-	return false;
-}
-
 static enum tp_gesture_state
 tp_gesture_handle_state_scroll(struct tp_dispatch *tp, uint64_t time)
 {
@@ -610,9 +583,6 @@ tp_gesture_handle_state_scroll(struct tp_dispatch *tp, uint64_t time)
 
 	if (tp->scroll.method != LIBINPUT_CONFIG_SCROLL_2FG)
 		return GESTURE_STATE_SCROLL;
-
-	if (tp_gesture_detect_pinch_in_swipe(tp, time))
-		return GESTURE_STATE_PINCH;
 
 	raw = tp_get_average_touches_delta(tp);
 
@@ -637,9 +607,6 @@ tp_gesture_handle_state_swipe(struct tp_dispatch *tp, uint64_t time)
 {
 	struct device_float_coords raw;
 	struct normalized_coords delta, unaccel;
-
-	if (tp_gesture_detect_pinch_in_swipe(tp, time))
-		return GESTURE_STATE_PINCH;
 
 	raw = tp_get_average_touches_delta(tp);
 	delta = tp_filter_motion(tp, &raw, time);
