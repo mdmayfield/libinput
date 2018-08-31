@@ -439,6 +439,7 @@ struct tp_dispatch {
 		int size_threshold;
 
 		bool ignore;
+		bool gesture_ignore;
 		bool was_thumb;
 		bool pinch_eligible;
 		int boundary;

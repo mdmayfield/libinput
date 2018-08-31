@@ -714,7 +714,9 @@ tp_thumb_ignore(const struct tp_dispatch *tp, const struct tp_touch *t)
 static bool
 tp_thumb_ignore_gesture(const struct tp_dispatch *tp, const struct tp_touch *t)
 {
-	return (tp_thumb_ignore(tp, t) && tp->thumb.was_thumb);
+	return (tp->thumb.detect_thumbs &&
+		(tp->thumb.index == t->index) &&
+		tp->thumb.gesture_ignore);
 }
 
 
@@ -1106,6 +1108,17 @@ out:
 		  palm_state);
 }
 
+static void
+tp_thumb_reset(struct tp_dispatch *tp)
+{
+	tp->thumb.pinch_eligible = true;
+	tp->thumb.ignore = false;
+	tp->thumb.gesture_ignore = false;
+	tp->thumb.was_thumb = false;
+	tp->thumb.boundary = 0;
+	tp->thumb.index = UINT_MAX;
+}
+
 static bool
 tp_thumb_hw_finger(struct tp_dispatch *tp, struct tp_touch *t)
 {
@@ -1137,6 +1150,7 @@ tp_thumb_deactivate(struct tp_dispatch *tp, struct tp_touch *t)
 	/* TODO: robust-ify this further */
 	tp->thumb.index = t->index;
 	tp->thumb.ignore = true;
+	tp->thumb.gesture_ignore = true;
 	tp->thumb.boundary = 0;
 }
 
@@ -1167,6 +1181,7 @@ tp_thumb_activate(struct tp_dispatch *tp, struct tp_touch *t)
 	if (!tp->thumb.boundary)
 		tp->thumb.was_thumb = true;
 	tp->thumb.ignore = false;
+	tp->thumb.gesture_ignore = false;
 	tp->thumb.boundary = 0;
 }
 
@@ -1212,11 +1227,10 @@ tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	}
 
 	/* If this new touch is the first, reset thumb flags */
-	tp->thumb.pinch_eligible = true;	
-	tp->thumb.ignore = false;
-	tp->thumb.was_thumb = false;
-	tp->thumb.boundary = 0;
-	tp->thumb.index = UINT_MAX;
+	tp_thumb_reset(tp);
+//TODO: issue is that sometimes two touches on same frame don't reset. Reset
+//instead at end of last touch?
+
 
 	/* Determine initial thumb status. If above the upper thumb line,
 	 * allow this touch to be active
@@ -1929,6 +1943,7 @@ tp_clear_state(struct tp_dispatch *tp)
 	 *
 	 * Then lift all touches so the touchpad is in a neutral state.
 	 *
+	 * Then reset all thumb detection flags.
 	 */
 	tp_release_all_buttons(tp, now);
 	tp_release_all_taps(tp, now);
@@ -1937,6 +1952,8 @@ tp_clear_state(struct tp_dispatch *tp)
 		tp_end_sequence(tp, t, now);
 	}
 	tp_release_fake_touches(tp);
+
+	tp_thumb_reset(tp);
 
 	tp_handle_state(tp, now);
 }
@@ -3185,6 +3202,7 @@ tp_init_thumb(struct tp_dispatch *tp)
 		return;
 
 	tp->thumb.detect_thumbs = true;
+	tp->thumb.use_size = false;
 	tp->thumb.use_pressure = false;
 	tp->thumb.pressure_threshold = INT_MAX;
 
@@ -3220,6 +3238,8 @@ tp_init_thumb(struct tp_dispatch *tp)
 	}
 
 	quirks_unref(q);
+
+	tp_thumb_reset(tp);
 
 	evdev_log_debug(device,
 			"thumb: enabled thumb detection%s%s\n",
