@@ -97,7 +97,8 @@ tp_thumb_needs_jail(const struct tp_dispatch *tp, const struct tp_touch *t)
 bool
 tp_thumb_ignored(const struct tp_dispatch *tp, const struct tp_touch *t)
 {
-	return (tp->thumb.index == t->index &&
+	return (tp->thumb.detect_thumbs &&
+		tp->thumb.index == t->index &&
 		(tp->thumb.state == THUMB_STATE_JAILED ||
 		 tp->thumb.state == THUMB_STATE_PINCH ||
 		 tp->thumb.state == THUMB_STATE_SUPPRESSED ||
@@ -108,7 +109,8 @@ tp_thumb_ignored(const struct tp_dispatch *tp, const struct tp_touch *t)
 bool
 tp_thumb_gesture_ignored(const struct tp_dispatch *tp, const struct tp_touch *t)
 {
-	return (tp->thumb.index == t->index &&
+	return (tp->thumb.detect_thumbs &&
+		tp->thumb.index == t->index &&
 		(tp->thumb.state == THUMB_STATE_SUPPRESSED ||
 		 tp->thumb.state == THUMB_STATE_DEAD));
 }

@@ -1435,7 +1435,6 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 	struct tp_touch *t;
 	bool restart_filter = false;
 	bool want_motion_reset;
-	bool have_new_touch = false;
 	unsigned int speed_exceeded_count = 0;
 
 	tp_position_fake_touches(tp);
@@ -1506,7 +1505,6 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 		tp_unpin_finger(tp, t);
 
 		if (t->state == TOUCH_BEGIN) {
-			have_new_touch = true;
 			restart_filter = true;
 		}
 	}
@@ -1562,6 +1560,9 @@ tp_post_process_state(struct tp_dispatch *tp, uint64_t time)
 	tp->buttons.old_state = tp->buttons.state;
 
 	tp->queued = TOUCHPAD_EVENT_NONE;
+
+	if (tp->nfingers_down == 0)
+		tp_thumb_reset(tp);
 
 	tp_tap_post_process_state(tp);
 }
@@ -1731,6 +1732,8 @@ tp_clear_state(struct tp_dispatch *tp)
 	 *
 	 * Then lift all touches so the touchpad is in a neutral state.
 	 *
+	 * Then reset thumb state.
+	 *
 	 */
 	tp_release_all_buttons(tp, now);
 	tp_release_all_taps(tp, now);
@@ -1739,6 +1742,8 @@ tp_clear_state(struct tp_dispatch *tp)
 		tp_end_sequence(tp, t, now);
 	}
 	tp_release_fake_touches(tp);
+
+	tp_thumb_reset(tp);
 
 	tp_handle_state(tp, now);
 }
