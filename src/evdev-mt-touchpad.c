@@ -1435,6 +1435,7 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 	struct tp_touch *t;
 	bool restart_filter = false;
 	bool want_motion_reset;
+	bool have_new_touch = false;
 	unsigned int speed_exceeded_count = 0;
 
 	tp_position_fake_touches(tp);
@@ -1505,14 +1506,14 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 		tp_unpin_finger(tp, t);
 
 		if (t->state == TOUCH_BEGIN) {
+			have_new_touch = true;
 			restart_filter = true;
 		}
 	}
 
-	/* If the number of fingers has changed, update thumb status by context.
-	 */
-	if (tp->nfingers_down != tp->old_nfingers_down &&
-	    tp->thumb.detect_thumbs)
+	if (tp->thumb.detect_thumbs &&
+	    have_new_touch &&
+	    tp->nfingers_down >= 2)
 		tp_thumb_update_by_context(tp);
 
 	if (restart_filter)

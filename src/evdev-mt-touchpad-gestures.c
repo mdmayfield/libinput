@@ -473,10 +473,10 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	double first_mm, second_mm, /* Amount moved since gesture start in mm*/
 	       thumb_mm, finger_mm;
 	double inner = 1.5; /* Inner threshold in mm - count this touch */
-	double outer = 3.0; /* Outer threshold in mm - ignore other touch */
+	double outer = 4.0; /* Outer threshold in mm - ignore other touch */
 
 	/* Need more margin for error when there are more fingers */
-	outer += (tp->gesture.finger_count - 1);
+	outer += 2.0 * (tp->gesture.finger_count - 2);
 
 	first_moved = tp_gesture_mm_moved(tp, first);
 	first_mm = hypot(first_moved.x, first_moved.y);
@@ -501,15 +501,15 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	/* If touches are within 7mm vertically, or if we can't detect pinches,
 	 * assume scroll/swipe after a short timeout.
 	 */
-	if ((tp->gesture.finger_count > tp->num_slots || distance_mm.y < 7.0) &&
+	if ((!tp->gesture.enabled || distance_mm.y < 7.0) &&
 	    time > (tp->gesture.initial_time + DEFAULT_GESTURE_SWIPE_TIMEOUT)) {
 		if (tp->gesture.finger_count == 2) {
 			tp_gesture_set_scroll_buildup(tp);
 			return GESTURE_STATE_SCROLL;
-		} else if (tp->gesture.enabled) { //TODO - what's going on here?
+		} else {
 			return GESTURE_STATE_SWIPE;
 		}
-	}//TODO: maybe make this contingent on no thumb detection?
+	}
 
 	/* If one touch exceeds the outer threshold while the other has not
 	 * yet passed the inner threshold, there may be a resting thumb, or the
@@ -536,10 +536,16 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 			return GESTURE_STATE_SCROLL;
 		}
 
-		/* If we get here, either both fingers have passed the inner
-		 * threshold (handled below), or >2 fingers are involved but
-		 * a thumb was not detected.
+		/* If more than 2 fingers are involved, and the thumb moves
+		 * while the fingers stay still, assume a pinch if eligible.
 		 */
+		if (finger_mm < inner &&
+		    tp->gesture.finger_count > 2 &&
+		    tp->gesture.enabled &&
+		    tp->thumb.pinch_eligible) {
+			tp_gesture_init_pinch(tp);
+			return GESTURE_STATE_PINCH;
+		}
 	}
 
 	/* If either touch is still inside the inner threshold, we can't

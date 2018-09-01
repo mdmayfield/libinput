@@ -13,6 +13,9 @@
 #include "quirks.h"
 #include "evdev-mt-touchpad.h"
 
+#define SCROLL_MM_X 35 /* mm distance to assume fingers are a scroll */
+#define SCROLL_MM_Y 25
+
 static inline const char*
 thumb_state_to_str(enum tp_thumb_state state)
 {
@@ -36,7 +39,8 @@ tp_thumb_set_state(struct tp_dispatch *tp,
 {
 	if (tp->thumb.state != state ||
 	    tp->thumb.index != t->index) {
-		evdev_log_debug(tp->device,
+//		evdev_log_debug(tp->device,
+printf(
 			"thumb state: touch %d, %s → %s\n",
 			t->index,
 			thumb_state_to_str(tp->thumb.state),
@@ -52,7 +56,14 @@ tp_thumb_reset(struct tp_dispatch *tp)
 {
 	tp->thumb.state = THUMB_STATE_LIVE;
 	tp->thumb.index = UINT_MAX;
-	tp->thumb.pinch_eligible = tp->gesture.enabled;
+	tp->thumb.pinch_eligible = true;
+}
+
+static void
+tp_thumb_lift(struct tp_dispatch *tp)
+{
+	tp->thumb.state = THUMB_STATE_LIVE;
+	tp->thumb.index = UINT_MAX;
 }
 
 static bool
@@ -111,23 +122,47 @@ tp_thumb_gesture_ignored(const struct tp_dispatch *tp, const struct tp_touch *t)
 {
 	return (tp->thumb.detect_thumbs &&
 		tp->thumb.index == t->index &&
-		(tp->thumb.state == THUMB_STATE_SUPPRESSED ||
+		(tp->thumb.state == THUMB_STATE_JAILED ||
+		 tp->thumb.state == THUMB_STATE_SUPPRESSED ||
+		 tp->thumb.state == THUMB_STATE_REV_JAILED ||
 		 tp->thumb.state == THUMB_STATE_DEAD));
 }
 
 void
 tp_thumb_suppress(struct tp_dispatch *tp, struct tp_touch *t)
 {
-	tp->thumb.index = t->index;
-
 	if(tp->thumb.state == THUMB_STATE_LIVE ||
 	   tp->thumb.state == THUMB_STATE_JAILED ||
-	   tp->thumb.state == THUMB_STATE_PINCH) {
-		tp->thumb.state = THUMB_STATE_SUPPRESSED;
+	   tp->thumb.state == THUMB_STATE_PINCH ||
+	   tp->thumb.index != t->index) {
+		tp_thumb_set_state(tp, t, THUMB_STATE_SUPPRESSED);
 		return;
 	}
 
-	tp->thumb.state = THUMB_STATE_DEAD;
+	tp_thumb_set_state(tp, t, THUMB_STATE_DEAD);
+}
+
+static void
+tp_thumb_pinch(struct tp_dispatch *tp, struct tp_touch *t)
+{
+	if(tp->thumb.state == THUMB_STATE_LIVE ||
+	   tp->thumb.state == THUMB_STATE_JAILED ||
+	   tp->thumb.index != t->index)
+		tp_thumb_set_state(tp, t, THUMB_STATE_PINCH);
+}
+
+static void
+tp_thumb_revive(struct tp_dispatch *tp, struct tp_touch *t)
+{
+	if((tp->thumb.state != THUMB_STATE_SUPPRESSED &&
+	    tp->thumb.state != THUMB_STATE_PINCH) ||
+	   (tp->thumb.index != t->index))
+		return;
+
+	if(tp_thumb_needs_jail(tp, t))
+		tp_thumb_set_state(tp, t, THUMB_STATE_REV_JAILED);
+	else
+		tp_thumb_set_state(tp, t, THUMB_STATE_REVIVED);
 }
 
 void
@@ -135,7 +170,7 @@ tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t)
 {
 	if (!tp->thumb.detect_thumbs)
 		return;
-
+	printf("Update: thumb index %d\n",tp->thumb.index);
 	/* Once any active touch exceeds the speed threshold, don't
 	 * try to detect pinches until all touches lift. (If a pinch is
 	 * already in progress, this doesn't affect it.)
@@ -143,6 +178,16 @@ tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t)
 	if (t->speed.exceeded_count >= 10 &&
 	    tp->thumb.pinch_eligible) {
 		tp->thumb.pinch_eligible = false;
+		if(tp->thumb.state == THUMB_STATE_PINCH &&
+		   tp->gesture.state == GESTURE_STATE_NONE)
+			tp->thumb.state = THUMB_STATE_SUPPRESSED;
+		printf("Setting pinch ineligible\n");
+	}
+
+	/* Handle the thumb lifting off the touchpad */
+	if (t->state == TOUCH_END && t->index == tp->thumb.index) {
+		tp_thumb_lift(tp);
+		return;
 	}
 
 	/* If this touch is not the only one, thumb updates happen by context
@@ -150,6 +195,11 @@ tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t)
 	 */
 	if (tp->nfingers_down > 1)
 		return;
+
+	/* If we arrived here by other fingers lifting off, revive current touch
+	 * if appropriate
+	 */
+	tp_thumb_revive(tp, t);
 
 	/* First new touch below the lower_thumb_line, or below the upper_thumb_
 	 * line if hardware can't verify it's a finger, starts as JAILED.
@@ -170,72 +220,93 @@ tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t)
 		tp_thumb_set_state(tp, t, THUMB_STATE_REVIVED);
 }
 
-/*void
-tp_thumb_detect_by_context(struct tp_dispatch *tp)
-{
-	// if only one touch exists:
-	//  SUPPRESSED -> REVIVED or REV_JAILED; return
-	// else do nothing & return
-
-	// find 1st/2nd bottom-most touches, max speed, newest
-	// detect thumb by speed (SUPPRESSED if detect_thumbs, else DEAD)
-	// if !detect_thumbs, return
-
-	// first (lowest) touch:
-	// case LIVE, case JAILED:
-	// 	-> GESTURE (if thumb.initial <2mm from point) or
-	// 	-> SUPPRESSED otherwise 
-	// case GESTURE -> do nothing
-	// case SUPPRESSED -> do nothing
-	// case REVIVED, case REVIVED_JAILED:
-	// 	-> DEAD
-}*/
-
 void
 tp_thumb_update_by_context(struct tp_dispatch *tp)
 {
-	return; //TODO
 	struct tp_touch *t;
 	struct tp_touch *first = NULL,
-			*second = NULL;
+			*second = NULL,
+			*newest = NULL;
 	struct device_coords distance;
 	struct phys_coords mm;
+	unsigned int speed_exceeded_count = 0;
 
+printf("Before: thumb index %d  ",tp->thumb.index);
+
+	/* Get the first and second bottom-most touches, the max speed exceeded
+	 * count overall, and the newest touch (or one of them, if more).
+	 */
 	tp_for_each_touch(tp, t) {
 		if (t->state == TOUCH_NONE ||
 		    t->state == TOUCH_HOVERING)
 			continue;
 
-		if (t->state != TOUCH_BEGIN)
-			first = t;
-		else
-			second = t;
+		if (t->state == TOUCH_BEGIN)
+			newest = t;
 
-		if (first && second)
-			break;
+		speed_exceeded_count = max(speed_exceeded_count,
+		                           t->speed.exceeded_count);
+
+		if (!first) {
+			first = t;
+			continue;
+		}
+
+		if (t->point.y > first->point.y) {
+			second = first;
+			first = t;
+			continue;
+		}
+
+		if (!second || t->point.y > second->point.y ) {
+			second = t;
+		}
+	}
+
+	if (!first || !second) {
+		printf("NoF/S: thumb index %d\n",tp->thumb.index);
+		return;
 	}
 
 	assert(first);
 	assert(second);
 
-	if (tp->scroll.method == LIBINPUT_CONFIG_SCROLL_2FG) {
-		/* If the second finger comes down next to the other one, we
-		 * assume this is a scroll motion.
-		 */
-		distance.x = abs(first->point.x - second->point.x);
-		distance.y = abs(first->point.y - second->point.y);
-		mm = evdev_device_unit_delta_to_mm(tp->device, &distance);
+	distance.x = abs(first->point.x - second->point.x);
+	distance.y = abs(first->point.y - second->point.y);
+	mm = evdev_device_unit_delta_to_mm(tp->device, &distance);
 
-		if (mm.x <= 25 && mm.y <= 15)
-			return;
+	/* Speed-based thumb detection: if an existing touch is moving, and
+	 * a new touch arrives, mark it as a thumb if it doesn't qualify as a
+	 * 2-finger scroll.
+	 */
+	if (newest &&
+	    tp->nfingers_down == 2 &&
+	    speed_exceeded_count > 5 &&
+	    (tp->scroll.method != LIBINPUT_CONFIG_SCROLL_2FG ||
+	     (mm.x > SCROLL_MM_X && mm.y > SCROLL_MM_Y))) {
+		evdev_log_debug(tp->device,
+				"touch %d is speed-based thumb\n",
+				newest->index);
+		tp_thumb_suppress(tp, newest);
+		printf("Speed: thumb index %d\n",tp->thumb.index);
+		return;
 	}
 
-	/* Finger are too far apart or 2fg scrolling is disabled, mark
-	 * second finger as thumb */
-	evdev_log_debug(tp->device,
-			"touch %d is speed-based thumb\n",
-			second->index);
-	tp_thumb_suppress(tp, second);
+	/* Position-based thumb detection: When a new touch arrives, check the
+	 * two lowest touches. If they qualify for 2-finger scrolling, clear
+	 * thumb status. If not, mark the lower touch (based on pinch_eligible)
+	 * as either PINCH or SUPPRESSED.
+	 */
+	if (mm.y > SCROLL_MM_Y) {
+		if (tp->thumb.pinch_eligible)
+			tp_thumb_pinch(tp, first);
+		else
+			tp_thumb_suppress(tp, first);
+	} else {
+		tp_thumb_lift(tp);
+	}
+
+	printf("Ending: thumb index %d\n",tp->thumb.index);
 }
 
 void
