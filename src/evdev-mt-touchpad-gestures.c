@@ -488,14 +488,14 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	delta.y = abs(first->point.y - second->point.y);
 	distance_mm = evdev_device_unit_delta_to_mm(tp->device, &delta);
 
-	if (first->point.y < second->point.y) {
-		thumb = second;
-		thumb_mm = second_mm;
-		finger_mm = first_mm;
-	} else {
+	if (first->point.y > second->point.y) {
 		thumb = first;
 		thumb_mm = first_mm;
 		finger_mm = second_mm;
+	} else {
+		thumb = second;
+		thumb_mm = second_mm;
+		finger_mm = first_mm;
 	}
 
 	/* If touches are within 7mm vertically, or if we can't detect pinches,

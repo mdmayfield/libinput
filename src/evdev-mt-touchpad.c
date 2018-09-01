@@ -1147,7 +1147,9 @@ tp_thumb_hw_finger(struct tp_dispatch *tp, struct tp_touch *t)
 void
 tp_thumb_deactivate(struct tp_dispatch *tp, struct tp_touch *t)
 {
-	/* TODO: robust-ify this further */
+	if (!tp->thumb.detect_thumbs)
+		return;
+
 	tp->thumb.index = t->index;
 	tp->thumb.ignore = true;
 	tp->thumb.gesture_ignore = true;
@@ -1194,21 +1196,31 @@ tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 		return;
 
 	/* Once any active touch exceeds the speed threshold, don't
-	 * try to detect pinches until all touches lift.
+	 * try to detect pinches until all touches lift. (If a pinch is
+	 * already in progress, this doesn't affect it.)
 	 */
-	if (t->speed.exceeded_count >= 5)
+	if (t->speed.exceeded_count >= 10 &&
+	    tp->thumb.pinch_eligible) {
 		tp->thumb.pinch_eligible = false;
-
+		printf("Setting pinch ineligible\n");
+	}
 	/* If a boundary is set, and this touch is a suspected thumb *and* the
 	 * only finger down, give it a chance to become active by breaking the
 	 * boundary and/or exceeding the speed threshold.
 	 */
 	if (tp->thumb.boundary && tp->nfingers_down == 1) {
-		if (t->speed.exceeded_count >= 5 ||
+		if (t->speed.exceeded_count >= 10 ||
 		    t->point.y < tp->thumb.boundary) {
 			tp_thumb_activate(tp, t);
 			return;
 		}
+	}
+
+	/* If this is the only remaining touch after others were lifted, give
+	 * it a chance to become active
+	 */
+	if (tp->nfingers_down == 1 && tp->old_nfingers_down > 1) {
+		tp_thumb_activate(tp, t);
 	}
 
 	/* If this touch is not new, all its thumb updates happen elsewhere */
@@ -1225,12 +1237,6 @@ tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 		tp->thumb.boundary = 0;
 		return;
 	}
-
-	/* If this new touch is the first, reset thumb flags */
-	tp_thumb_reset(tp);
-//TODO: issue is that sometimes two touches on same frame don't reset. Reset
-//instead at end of last touch?
-
 
 	/* Determine initial thumb status. If above the upper thumb line,
 	 * allow this touch to be active
@@ -1773,6 +1779,9 @@ tp_post_process_state(struct tp_dispatch *tp, uint64_t time)
 	tp->old_nfingers_down = tp->nfingers_down;
 	tp->buttons.old_state = tp->buttons.state;
 
+	if (tp->nfingers_down == 0)
+		tp_thumb_reset(tp);
+
 	tp->queued = TOUCHPAD_EVENT_NONE;
 
 	tp_tap_post_process_state(tp);
@@ -1860,7 +1869,7 @@ tp_interface_process(struct evdev_dispatch *dispatch,
 		break;
 	case EV_SYN:
 		tp_handle_state(tp, time);
-#if 0
+#if 1
 		tp_debug_touch_state(tp, device);
 #endif
 		break;
@@ -3206,9 +3215,9 @@ tp_init_thumb(struct tp_dispatch *tp)
 	tp->thumb.use_pressure = false;
 	tp->thumb.pressure_threshold = INT_MAX;
 
-	/* detect thumbs by pressure in the bottom 15mm, detect thumbs by
-	 * lingering in the bottom 8mm */
-	mm.y = h * 0.85;
+	/* detect thumbs by hardware in the bottom 20%, detect thumbs by
+	 * context in the bottom 8% */
+	mm.y = h * 0.80;
 	edges = evdev_device_mm_to_units(device, &mm);
 	tp->thumb.upper_thumb_line = edges.y;
 
