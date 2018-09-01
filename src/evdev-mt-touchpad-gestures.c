@@ -477,6 +477,7 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 
 	/* Need more margin for error when there are more fingers */
 	outer += 2.0 * (tp->gesture.finger_count - 2);
+	inner += 0.5 * (tp->gesture.finger_count - 2);
 
 	first_moved = tp_gesture_mm_moved(tp, first);
 	first_mm = hypot(first_moved.x, first_moved.y);
