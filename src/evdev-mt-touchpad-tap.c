@@ -1012,7 +1012,7 @@ tp_tap_handle_state(struct tp_dispatch *tp, uint64_t time)
 			/* The simple version: if a touch is a thumb on
 			 * begin we ignore it. All other thumb touches
 			 * follow the normal tap state for now */
-			if (tp_thumb_ignore(tp, t)) {
+			if (tp_thumb_ignored(tp, t)) {
 				t->tap.is_thumb = true;
 				continue;
 			}
@@ -1037,7 +1037,7 @@ tp_tap_handle_state(struct tp_dispatch *tp, uint64_t time)
 			}
 			t->tap.state = TAP_TOUCH_STATE_IDLE;
 		} else if (tp->tap.state != TAP_STATE_IDLE &&
-			   tp_thumb_ignore(tp, t)) {
+			   tp_thumb_ignored(tp, t)) {
 			tp_tap_handle_event(tp, t, TAP_EVENT_THUMB, time);
 		} else if (tp->tap.state != TAP_STATE_IDLE &&
 			   tp_tap_exceeds_motion_threshold(tp, t)) {

@@ -328,8 +328,6 @@ tp_begin_touch(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	t->was_down = true;
 	tp->nfingers_down++;
 	t->palm.time = time;
-	t->thumb.state = THUMB_STATE_MAYBE;
-	t->thumb.first_touch_time = time;
 	t->tap.is_thumb = false;
 	t->tap.is_palm = false;
 	assert(tp->nfingers_down >= 1);
@@ -711,10 +709,22 @@ tp_touch_active(const struct tp_dispatch *tp, const struct tp_touch *t)
 	return (t->state == TOUCH_BEGIN || t->state == TOUCH_UPDATE) &&
 		t->palm.state == PALM_NONE &&
 		!t->pinned.is_pinned &&
-		t->thumb.state != THUMB_STATE_YES &&
+		!tp_thumb_ignored(tp, t) &&
 		tp_button_touch_active(tp, t) &&
 		tp_edge_scroll_touch_active(tp, t);
 }
+
+bool
+tp_touch_gesture_active(const struct tp_dispatch *tp, const struct tp_touch *t)
+{
+	return (t->state == TOUCH_BEGIN || t->state == TOUCH_UPDATE) &&
+		t->palm.state == PALM_NONE &&
+		!t->pinned.is_pinned &&
+		!tp_thumb_gesture_ignored(tp, t) &&
+		tp_button_touch_active(tp, t) &&
+		tp_edge_scroll_touch_active(tp, t);
+}
+
 
 static inline bool
 tp_palm_was_in_side_edge(const struct tp_dispatch *tp, const struct tp_touch *t)
@@ -1080,18 +1090,6 @@ out:
 		  "palm: touch %d, palm detected (%s)\n",
 		  t->index,
 		  palm_state);
-}
-
-static inline const char*
-thumb_state_to_str(enum tp_thumb_state state)
-{
-	switch(state){
-	CASE_RETURN_STRING(THUMB_STATE_NO);
-	CASE_RETURN_STRING(THUMB_STATE_YES);
-	CASE_RETURN_STRING(THUMB_STATE_MAYBE);
-	}
-
-	return NULL;
 }
 
 static void
@@ -1475,7 +1473,7 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 			tp_motion_history_reset(t);
 		}
 
-		tp_thumb_update(tp, t, time);
+		tp_thumb_update(tp, t);
 		tp_palm_detect(tp, t, time);
 		tp_detect_wobbling(tp, t, time);
 		tp_motion_hysteresis(tp, t);
@@ -1513,12 +1511,11 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 		}
 	}
 
-	/* If we have one touch that exceeds the speed and we get a new
-	 * touch down while doing that, the second touch is a thumb */
-	if (have_new_touch &&
-	    tp->nfingers_down == 2 &&
-	    speed_exceeded_count > 5)
-		tp_detect_thumb_while_moving(tp);
+	/* If the number of fingers has changed, update thumb status by context.
+	 */
+	if (tp->nfingers_down != tp->old_nfingers_down &&
+	    tp->thumb.detect_thumbs)
+		tp_thumb_update_by_context(tp);
 
 	if (restart_filter)
 		filter_restart(tp->device->pointer.filter, tp, time);
@@ -2966,72 +2963,6 @@ tp_init_sendevents(struct tp_dispatch *tp,
 			    tp_libinput_context(tp),
 			    timer_name,
 			    tp_keyboard_timeout, tp);
-}
-
-static void
-tp_init_thumb(struct tp_dispatch *tp)
-{
-	struct evdev_device *device = tp->device;
-	double w = 0.0, h = 0.0;
-	struct device_coords edges;
-	struct phys_coords mm = { 0.0, 0.0 };
-	uint32_t threshold;
-	struct quirks_context *quirks;
-	struct quirks *q;
-
-	if (!tp->buttons.is_clickpad)
-		return;
-
-	/* if the touchpad is less than 50mm high, skip thumb detection.
-	 * it's too small to meaningfully interact with a thumb on the
-	 * touchpad */
-	evdev_device_get_size(device, &w, &h);
-	if (h < 50)
-		return;
-
-	tp->thumb.detect_thumbs = true;
-	tp->thumb.use_pressure = false;
-	tp->thumb.pressure_threshold = INT_MAX;
-
-	/* detect thumbs by pressure in the bottom 15mm, detect thumbs by
-	 * lingering in the bottom 8mm */
-	mm.y = h * 0.85;
-	edges = evdev_device_mm_to_units(device, &mm);
-	tp->thumb.upper_thumb_line = edges.y;
-
-	mm.y = h * 0.92;
-	edges = evdev_device_mm_to_units(device, &mm);
-	tp->thumb.lower_thumb_line = edges.y;
-
-	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
-
-	if (libevdev_has_event_code(device->evdev, EV_ABS, ABS_MT_PRESSURE)) {
-		if (quirks_get_uint32(q,
-				      QUIRK_ATTR_THUMB_PRESSURE_THRESHOLD,
-				      &threshold)) {
-			tp->thumb.use_pressure = true;
-			tp->thumb.pressure_threshold = threshold;
-		}
-	}
-
-	if (libevdev_has_event_code(device->evdev, EV_ABS, ABS_MT_TOUCH_MAJOR)) {
-		if (quirks_get_uint32(q,
-				      QUIRK_ATTR_THUMB_SIZE_THRESHOLD,
-				      &threshold)) {
-			tp->thumb.use_size = true;
-			tp->thumb.size_threshold = threshold;
-		}
-	}
-
-	quirks_unref(q);
-
-	tp_thumb_reset(tp);
-
-	evdev_log_debug(device,
-			"thumb: enabled thumb detection%s%s\n",
-			tp->thumb.use_pressure ? " (+pressure)" : "",
-			tp->thumb.use_size ? " (+size)" : "");
 }
 
 static bool

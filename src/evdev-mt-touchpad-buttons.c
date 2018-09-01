@@ -995,8 +995,8 @@ tp_clickfinger_within_distance(struct tp_dispatch *tp,
 	if (!t1 || !t2)
 		return 0;
 
-	if (tp_thumb_ignore(tp, t1) ||
-	    tp_thumb_ignore(tp, t2))
+	if (tp_thumb_ignored(tp, t1) ||
+	    tp_thumb_ignored(tp, t2))
 		return 0;
 
 	x = abs(t1->point.x - t2->point.x);
@@ -1051,7 +1051,7 @@ tp_clickfinger_set_button(struct tp_dispatch *tp)
 		if (t->state != TOUCH_BEGIN && t->state != TOUCH_UPDATE)
 			continue;
 
-		if (tp_thumb_ignore(tp, t))
+		if (tp_thumb_ignored(tp, t))
 			continue;
 
 		if (t->palm.state != PALM_NONE)
