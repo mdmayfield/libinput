@@ -526,11 +526,11 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 			return GESTURE_STATE_NONE;
 		}
 
-		/* If thumb detection is disabled, or if finger is still while
+		/* If pinch detection is disabled, or if finger is still while
 		 * thumb moves, assume "one-finger scrolling." This applies
 		 * only to 2-finger gestures.
 		 */
-		if ((!tp->thumb.detect_thumbs || finger_mm < inner) &&
+		if ((!tp->gesture.enabled || finger_mm < inner) &&
 		    tp->gesture.finger_count == 2) {
 			tp_gesture_set_scroll_buildup(tp);
 			return GESTURE_STATE_SCROLL;
