@@ -39,8 +39,7 @@ tp_thumb_set_state(struct tp_dispatch *tp,
 {
 	if (tp->thumb.state != state ||
 	    tp->thumb.index != t->index) {
-//		evdev_log_debug(tp->device,
-printf(
+		evdev_log_debug(tp->device, //TODO show changed index
 			"thumb state: touch %d, %s → %s\n",
 			t->index,
 			thumb_state_to_str(tp->thumb.state),
@@ -170,7 +169,7 @@ tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t)
 {
 	if (!tp->thumb.detect_thumbs)
 		return;
-	printf("Update: thumb index %d\n",tp->thumb.index);
+//	printf("Update: thumb index %d\n",tp->thumb.index);
 	/* Once any active touch exceeds the speed threshold, don't
 	 * try to detect pinches until all touches lift. (If a pinch is
 	 * already in progress, this doesn't affect it.)
@@ -180,8 +179,8 @@ tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t)
 		tp->thumb.pinch_eligible = false;
 		if(tp->thumb.state == THUMB_STATE_PINCH &&
 		   tp->gesture.state == GESTURE_STATE_NONE)
-			tp->thumb.state = THUMB_STATE_SUPPRESSED;
-		printf("Setting pinch ineligible\n");
+			tp->thumb.state = THUMB_STATE_SUPPRESSED; //TODO log
+//		printf("Setting pinch ineligible\n");
 	}
 
 	/* Handle the thumb lifting off the touchpad */
@@ -231,7 +230,7 @@ tp_thumb_update_by_context(struct tp_dispatch *tp)
 	struct phys_coords mm;
 	unsigned int speed_exceeded_count = 0;
 
-printf("Before: thumb index %d  ",tp->thumb.index);
+//printf("Before: thumb index %d  ",tp->thumb.index);
 
 	/* Get the first and second bottom-most touches, the max speed exceeded
 	 * count overall, and the newest touch (or one of them, if more).
@@ -264,7 +263,7 @@ printf("Before: thumb index %d  ",tp->thumb.index);
 	}
 
 	if (!first || !second) {
-		printf("NoF/S: thumb index %d\n",tp->thumb.index);
+//		printf("NoF/S: thumb index %d\n",tp->thumb.index);
 		return;
 	}
 
@@ -288,7 +287,7 @@ printf("Before: thumb index %d  ",tp->thumb.index);
 				"touch %d is speed-based thumb\n",
 				newest->index);
 		tp_thumb_suppress(tp, newest);
-		printf("Speed: thumb index %d\n",tp->thumb.index);
+//		printf("Speed: thumb index %d\n",tp->thumb.index);
 		return;
 	}
 
@@ -306,7 +305,7 @@ printf("Before: thumb index %d  ",tp->thumb.index);
 		tp_thumb_lift(tp);
 	}
 
-	printf("Ending: thumb index %d\n",tp->thumb.index);
+//	printf("Ending: thumb index %d\n",tp->thumb.index);
 }
 
 void
