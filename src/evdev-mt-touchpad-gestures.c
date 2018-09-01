@@ -512,32 +512,32 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	}
 
 	/* If one touch exceeds the outer threshold while the other has not
-	 * yet passed the inner threshold, there may be a resting thumb, or the
-	 * user may be doing "one-finger-scroll," where one touch stays in
-	 * place while the other moves.
+	 * yet passed the inner threshold, we may have a resting thumb.
 	 */
 	if (first_mm >= outer || second_mm >= outer) {
 		/* If thumb detection is enabled, and thumb is still while
-		 * finger moves, mark lower as thumb and reset gesture. This
-		 * applies to all gestures with 2 or more fingers.
+		 * finger moves, mark thumb and reset gesture.
 		 */
 		if (tp->thumb.detect_thumbs && thumb_mm < inner) {
 			tp_thumb_suppress(tp, thumb);
 			return GESTURE_STATE_NONE;
 		}
 
-		/* If pinch detection is disabled, or if finger is still while
-		 * thumb moves, assume "one-finger scrolling." This applies
-		 * only to 2-finger gestures.
+		/* Assume "one-finger scrolling" if the finger is still while
+		 * the thumb moves, or vice versa if thumb detection is off.
+		 * (The first check would have handled a moving finger if thumb
+		 * detection were on.) This applies only to 2-finger gestures.
 		 */
-		if ((!tp->gesture.enabled || finger_mm < inner) &&
-		    tp->gesture.finger_count == 2) {
+		if (tp->gesture.finger_count == 2 &&
+		    (finger_mm < inner || thumb_mm < inner)) {
 			tp_gesture_set_scroll_buildup(tp);
 			return GESTURE_STATE_SCROLL;
 		}
 
-		/* If more than 2 fingers are involved, and the thumb moves
+		/* If more than 2 touches are involved, and the thumb moves
 		 * while the fingers stay still, assume a pinch if eligible.
+		 * This improves pinch accuracy - with thumb and 2+ fingers,
+		 * it's common for the fingers to "stick" physically.
 		 */
 		if (finger_mm < inner &&
 		    tp->gesture.finger_count > 2 &&
