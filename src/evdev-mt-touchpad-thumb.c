@@ -171,20 +171,20 @@ tp_thumb_update(struct tp_dispatch *tp, struct tp_touch *t)
 		return;
 //	printf("Update: thumb index %d\n",tp->thumb.index);
 	/* Once any active touch exceeds the speed threshold, don't
-	 * try to detect pinches until all touches lift. (If a pinch is
-	 * already in progress, this doesn't affect it.)
+	 * try to detect pinches until all touches lift.
 	 */
 	if (t->speed.exceeded_count >= 10 &&
-	    tp->thumb.pinch_eligible) {
+	    tp->thumb.pinch_eligible &&
+	    tp->gesture.state == GESTURE_STATE_NONE) {
 		tp->thumb.pinch_eligible = false;
-		if(tp->thumb.state == THUMB_STATE_PINCH &&
-		   tp->gesture.state == GESTURE_STATE_NONE)
+		if(tp->thumb.state == THUMB_STATE_PINCH)
 			tp->thumb.state = THUMB_STATE_SUPPRESSED; //TODO log
 //		printf("Setting pinch ineligible\n");
 	}
 
 	/* Handle the thumb lifting off the touchpad */
 	if (t->state == TOUCH_END && t->index == tp->thumb.index) {
+//		printf("Lifting thumb\n");
 		tp_thumb_lift(tp);
 		return;
 	}
