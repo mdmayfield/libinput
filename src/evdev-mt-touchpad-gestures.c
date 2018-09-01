@@ -56,7 +56,7 @@ tp_get_touches_delta(struct tp_dispatch *tp, bool average)
 	for (i = 0; i < tp->num_slots; i++) {
 		t = &tp->touches[i];
 
-		if (!tp_touch_active(tp, t))
+		if (!tp_touch_gesture_active(tp, t))
 			continue;
 
 		nactive++;
@@ -175,7 +175,7 @@ tp_gesture_get_active_touches(const struct tp_dispatch *tp,
 	memset(touches, 0, count * sizeof(struct tp_touch *));
 
 	tp_for_each_touch(tp, t) {
-		if (tp_touch_active(tp, t)) {
+		if (tp_touch_gesture_active(tp, t)) {
 			touches[n++] = t;
 			if (n == count)
 				return count;
@@ -465,11 +465,13 @@ static enum tp_gesture_state
 tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 {
 	struct tp_touch *first = tp->gesture.touches[0],
-			*second = tp->gesture.touches[1];
+			*second = tp->gesture.touches[1],
+			*thumb;
 	uint32_t dir1, dir2;
 	struct device_coords delta;
 	struct phys_coords first_moved, second_moved, distance_mm;
-	double first_mm, second_mm; /* Amount moved since gesture start in mm*/
+	double first_mm, second_mm, /* Amount moved since gesture start in mm*/
+	       thumb_mm, finger_mm;
 	double inner = 1.5; /* Inner threshold in mm - count this touch */
 	double outer = 3.0; /* Outer threshold in mm - ignore other touch */
 
@@ -485,6 +487,16 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	delta.x = abs(first->point.x - second->point.x);
 	delta.y = abs(first->point.y - second->point.y);
 	distance_mm = evdev_device_unit_delta_to_mm(tp->device, &delta);
+
+	if (first->point.y > second->point.y) {
+		thumb = first;
+		thumb_mm = first_mm;
+		finger_mm = second_mm;
+	} else {
+		thumb = second;
+		thumb_mm = second_mm;
+		finger_mm = first_mm;
+	}
 
 	/* If touches are within 7mm vertically, or if we can't detect pinches,
 	 * assume scroll/swipe after a short timeout.
@@ -505,22 +517,12 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	 * place while the other moves.
 	 */
 	if (first_mm >= outer || second_mm >= outer) {
-		struct tp_touch *thumb = first;
-		double thumb_mm = first_mm,
-		       finger_mm = second_mm;
-
-		if (first->point.y < second->point.y) {
-			thumb = second;
-			thumb_mm = second_mm;
-			finger_mm = first_mm;
-		}
-
 		/* If thumb detection is enabled, and thumb is still while
 		 * finger moves, mark lower as thumb and reset gesture. This
 		 * applies to all gestures with 2 or more fingers.
 		 */
 		if (tp->thumb.detect_thumbs && thumb_mm < inner) {
-			thumb->thumb.state = THUMB_STATE_YES;
+			tp_thumb_suppress(tp, thumb);
 			return GESTURE_STATE_NONE;
 		}
 
@@ -565,8 +567,13 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 		}
 	}
 
-	/* If the touches are moving away from each other, this is a pinch.
+	/* If the touches are moving away from each other, this is a pinch
+	 * (unless pinches are currently ineligible; if so, mark the thumb).
 	 */
+	if (tp->thumb.detect_thumbs && !tp->thumb.pinch_eligible) {
+		tp_thumb_suppress(tp, thumb);
+		return GESTURE_STATE_NONE;
+	}
 	tp_gesture_init_pinch(tp);
 	return GESTURE_STATE_PINCH;
 }
@@ -799,7 +806,7 @@ tp_gesture_handle_state(struct tp_dispatch *tp, uint64_t time)
 	struct tp_touch *t;
 
 	tp_for_each_touch(tp, t) {
-		if (tp_touch_active(tp, t))
+		if (tp_touch_gesture_active(tp, t))
 			active_touches++;
 	}
 
