@@ -499,6 +499,13 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 		finger_mm = first_mm;
 	}
 
+	/* Pinches are never eligible if a physical button is pressed or if
+	 * we are tap-dragging
+	 */
+	if (tp_tap_dragging(tp) ||
+	    tp->buttons.state)
+		tp->thumb.pinch_eligible = false;
+
 	/* If touches are within 7mm vertically, or if we can't detect pinches,
 	 * assume scroll/swipe after a short timeout.
 	 */
@@ -709,8 +716,16 @@ tp_gesture_post_events(struct tp_dispatch *tp, uint64_t time)
 	if (tp->gesture.finger_count == 0)
 		return;
 
-	/* When tap-and-dragging, force 1fg mode. */
-	if (tp_tap_dragging(tp)) {
+	/* Force 1fg mode when:
+	 * - Tap-dragging
+	 * - Physical click on a clickpad without thumb detection
+	 * - TODO click on touchpad like Dell Mini 10 (not technically clickpad;
+	 *   sends L/R clicks; but needs forced 1fg to function properly)
+	 */
+	if (tp_tap_dragging(tp) ||
+	    (tp->buttons.is_clickpad &&
+	     tp->buttons.state &&
+	     !tp->thumb.detect_thumbs)) {
 		tp_gesture_cancel(tp, time);
 		tp->gesture.finger_count = 1;
 		tp->gesture.finger_count_pending = 0;
