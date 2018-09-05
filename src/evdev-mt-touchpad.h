@@ -561,6 +561,9 @@ bool
 tp_thumb_ignored(const struct tp_dispatch *tp, const struct tp_touch *t);
 
 bool
+tp_thumb_tap_ignored(const struct tp_dispatch *tp, const struct tp_touch *t);
+
+bool
 tp_thumb_gesture_ignored(const struct tp_dispatch *tp, const struct tp_touch *t);
 
 void

@@ -1012,7 +1012,7 @@ tp_tap_handle_state(struct tp_dispatch *tp, uint64_t time)
 			/* The simple version: if a touch is a thumb on
 			 * begin we ignore it. All other thumb touches
 			 * follow the normal tap state for now */
-			if (tp_thumb_ignored(tp, t)) {
+			if (tp_thumb_tap_ignored(tp, t)) {
 				t->tap.is_thumb = true;
 				continue;
 			}
