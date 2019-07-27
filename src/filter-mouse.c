@@ -240,62 +240,26 @@ pointer_accel_profile_linear(struct motion_filter *filter,
 	/* Normalize to 1000dpi, because the rest below relies on that */
 	speed_in = speed_in * DEFAULT_MOUSE_DPI/accel_filter->dpi;
 
-	/*
-	   Our acceleration function calculates a factor to accelerate input
-	   deltas with. The function is a double incline with a plateau,
-	   with a rough shape like this:
+//	printf("speed_in = %2.4f / ", speed_in);
 
-	  accel
-	 factor
-	   ^
-	   |        /
-	   |  _____/
-	   | /
-	   |/
-	   +-------------> speed in
+	factor = (speed_in * 500);
+	// y=.1742\ -\ .343x\ +\ 1.43x^{2\ }-.148x^3\ \left\{0.38\ <\ x\ <\ 6.3\right\}
+	//factor = 0.1742 - (0.343 * factor) + (1.43 * factor * factor) - (0.148 * factor * factor * factor);
 
-	   The two inclines are linear functions in the form
-		   y = ax + b
-		   where y is speed_out
-		         x is speed_in
-			 a is the incline of acceleration
-			 b is minimum acceleration factor
-
-	   for speeds up to 0.07 u/ms, we decelerate, down to 30% of input
-	   speed.
-		   hence 1 = a * 0.07 + 0.3
-		       0.7 = a * 0.07 => a := 10
-		   deceleration function is thus:
-			y = 10x + 0.3
-
-	  Note:
-	  * 0.07u/ms as threshold is a result of trial-and-error and
-	    has no other intrinsic meaning.
-	  * 0.3 is chosen simply because it is above the Nyquist frequency
-	    for subpixel motion within a pixel.
-	*/
-	if (v_us2ms(speed_in) < 0.07) {
-		factor = 10 * v_us2ms(speed_in) + 0.3;
-	/* up to the threshold, we keep factor 1, i.e. 1:1 movement */
-	} else if (speed_in < threshold) {
-		factor = 1;
-
+	if (factor < 16) {
+		factor = 0.169 + (0.44 * factor) - (0.0125 * factor * factor);
 	} else {
-	/* Acceleration function above the threshold:
-		y = ax' + b
-		where T is threshold
-		      x is speed_in
-		      x' is speed
-	        and
-			y(T) == 1
-		hence 1 = ax' + 1
-			=> x' := (x - T)
-	 */
-		factor = incline * v_us2ms(speed_in - threshold) + 1;
+		factor = 4.0;
 	}
 
+//	printf("factor = %2.4f capped at ", factor);
+
 	/* Cap at the maximum acceleration factor */
-	factor = min(max_accel, factor);
+	//factor = min(max_accel, factor);
+	factor = min(4.0, factor);
+	factor = max(0.3, factor);
+
+//	printf("%2.4f\n", factor);
 
 	return factor;
 }
