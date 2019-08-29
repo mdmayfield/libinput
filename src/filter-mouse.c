@@ -240,7 +240,7 @@ pointer_accel_profile_linear(struct motion_filter *filter,
 	/* Normalize to 1000dpi, because the rest below relies on that */
 	speed_in = speed_in * DEFAULT_MOUSE_DPI/accel_filter->dpi;
 
-	printf("speed_in = %2.4f units/ms / ", v_us2ms(speed_in));
+//	printf("speed_in = %2.4f units/ms / ", v_us2ms(speed_in));
 
 	// Trial and error
 	// https://www.desmos.com/calculator/z0lal0htu9
@@ -251,17 +251,24 @@ pointer_accel_profile_linear(struct motion_filter *filter,
 //	factor = 250.0 * speed_in + 0.3;
 
 //	factor = (135.0 * speed_in) * (135.0 * speed_in) + 0.3;
-	factor = 0.5 * ((135.0 * speed_in) * (135.0 * speed_in)) + 125.0 * speed_in + 0.3;
+//	factor = 0.5 * ((135.0 * speed_in) * (135.0 * speed_in)) + 125.0 * speed_in + 0.3;
+//	factor = 0.5 * (0.5 * (400.0 * speed_in * speed_in)) + 100.0 * speed_in + 0.5;
+//	factor = 200.0 * speed_in + 0.5;
+//	factor = 0.5 + (250 * speed_in) - ((36 * speed_in) * (36 * speed_in)) + (8 * speed_in * speed_in * speed_in);
+
+//	factor = 0.15 + (250 * speed_in) - ((36 * speed_in) * (36 * speed_in)) + (8 * speed_in * speed_in * speed_in);
+
+	factor = 200 * speed_in;
 
 // https://www.desmos.com/calculator/k9sypmwym9
 
-	printf("factor = %2.4f capped at ", factor);
+//	printf("factor = %2.4f capped at ", factor);
 
 	/* Cap at the max & min acceleration factors */
-	factor = min(4.0, factor);
-	factor = max(0.3, factor);
+	factor = min(2.0, factor);
+	factor = max(0.75, factor);
 
-	printf("%2.4f\n", factor);
+//	printf("%2.4f\n", factor);
 
 	return factor;
 }
