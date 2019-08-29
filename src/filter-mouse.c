@@ -233,33 +233,35 @@ pointer_accel_profile_linear(struct motion_filter *filter,
 	struct pointer_accelerator *accel_filter =
 		(struct pointer_accelerator *)filter;
 	const double max_accel = accel_filter->accel; /* unitless factor */
-	const double threshold = accel_filter->threshold; /* units/us */
+	//const double threshold = accel_filter->threshold; /* units/us */
 	const double incline = accel_filter->incline;
 	double factor; /* unitless */
 
 	/* Normalize to 1000dpi, because the rest below relies on that */
 	speed_in = speed_in * DEFAULT_MOUSE_DPI/accel_filter->dpi;
 
-//	printf("speed_in = %2.4f / ", speed_in);
+	printf("speed_in = %2.4f units/ms / ", v_us2ms(speed_in));
 
-	factor = (speed_in * 500);
-	// y=.1742\ -\ .343x\ +\ 1.43x^{2\ }-.148x^3\ \left\{0.38\ <\ x\ <\ 6.3\right\}
-	//factor = 0.1742 - (0.343 * factor) + (1.43 * factor * factor) - (0.148 * factor * factor * factor);
+	// Trial and error
+	// https://www.desmos.com/calculator/z0lal0htu9
 
-	if (factor < 16) {
-		factor = 0.169 + (0.44 * factor) - (0.0125 * factor * factor);
-	} else {
-		factor = 4.0;
-	}
+//	factor = ((speed_in + 0.0025) * 120) * ((speed_in + 0.0025) * 120) + 0.2; // note no us2ms conversion
 
-//	printf("factor = %2.4f capped at ", factor);
+//      KISS?
+//	factor = 250.0 * speed_in + 0.3;
 
-	/* Cap at the maximum acceleration factor */
-	//factor = min(max_accel, factor);
+//	factor = (135.0 * speed_in) * (135.0 * speed_in) + 0.3;
+	factor = 0.5 * ((135.0 * speed_in) * (135.0 * speed_in)) + 125.0 * speed_in + 0.3;
+
+// https://www.desmos.com/calculator/k9sypmwym9
+
+	printf("factor = %2.4f capped at ", factor);
+
+	/* Cap at the max & min acceleration factors */
 	factor = min(4.0, factor);
 	factor = max(0.3, factor);
 
-//	printf("%2.4f\n", factor);
+	printf("%2.4f\n", factor);
 
 	return factor;
 }
