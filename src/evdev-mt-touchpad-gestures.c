@@ -719,6 +719,20 @@ tp_gesture_post_gesture(struct tp_dispatch *tp, uint64_t time)
 }
 
 void
+tp_stop_scroll_inertia(struct tp_dispatch *tp, uint64_t time)
+{
+	struct normalized_coords delta = {0.000001, 0.000001};
+
+	evdev_post_scroll(tp->device, time,
+	LIBINPUT_POINTER_AXIS_SOURCE_FINGER, &delta);
+
+	evdev_stop_scroll(tp->device, time,
+	LIBINPUT_POINTER_AXIS_SOURCE_FINGER);
+
+	tp->gesture.may_have_inertia = false;
+}
+
+void
 tp_gesture_post_events(struct tp_dispatch *tp, uint64_t time)
 {
 	if (tp->gesture.finger_count == 0)
@@ -744,6 +758,8 @@ tp_gesture_post_events(struct tp_dispatch *tp, uint64_t time)
 	case 1:
 		if (tp->queued & TOUCHPAD_EVENT_MOTION)
 			tp_gesture_post_pointer_motion(tp, time);
+		if (tp->gesture.may_have_inertia)
+			tp_stop_scroll_inertia(tp, time);
 		break;
 	case 2:
 	case 3:
@@ -758,7 +774,6 @@ tp_gesture_stop_twofinger_scroll(struct tp_dispatch *tp, uint64_t time)
 {
 	if (tp->scroll.method != LIBINPUT_CONFIG_SCROLL_2FG)
 		return;
-
 	evdev_stop_scroll(tp->device,
 			  time,
 			  LIBINPUT_POINTER_AXIS_SOURCE_FINGER);
@@ -783,6 +798,7 @@ tp_gesture_end(struct tp_dispatch *tp, uint64_t time, bool cancelled)
 		break;
 	case GESTURE_STATE_SCROLL:
 		tp_gesture_stop_twofinger_scroll(tp, time);
+		tp->gesture.may_have_inertia = true;
 		break;
 	case GESTURE_STATE_PINCH:
 		gesture_notify_pinch_end(&tp->device->base, time,
@@ -822,6 +838,12 @@ tp_gesture_finger_count_switch_timeout(uint64_t now, void *data)
 		return;
 
 	tp_gesture_cancel(tp, now); /* End current gesture */
+
+	if(tp->gesture.finger_count == 2 &&
+	   tp->gesture.finger_count_pending > 0) {
+		tp_stop_scroll_inertia(tp, now);
+	}
+
 	tp->gesture.finger_count = tp->gesture.finger_count_pending;
 	tp->gesture.finger_count_pending = 0;
 }

@@ -319,6 +319,7 @@ struct tp_dispatch {
 	struct {
 		bool enabled;
 		bool started;
+		bool may_have_inertia;
 		unsigned int finger_count;
 		unsigned int finger_count_pending;
 		struct libinput_timer finger_count_switch_timer;
@@ -672,6 +673,9 @@ tp_gesture_cancel(struct tp_dispatch *tp, uint64_t time);
 
 void
 tp_gesture_handle_state(struct tp_dispatch *tp, uint64_t time);
+
+void
+tp_stop_scroll_inertia(struct tp_dispatch *tp, uint64_t time);
 
 void
 tp_gesture_post_events(struct tp_dispatch *tp, uint64_t time);

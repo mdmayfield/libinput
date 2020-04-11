@@ -1696,6 +1696,7 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 	want_motion_reset = tp_need_motion_history_reset(tp);
 
 	tp_for_each_touch(tp, t) {
+
 		if (t->state == TOUCH_NONE)
 			continue;
 
@@ -1762,6 +1763,8 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 		if (t->state == TOUCH_BEGIN) {
 			have_new_touch = true;
 			restart_filter = true;
+            if (tp->gesture.may_have_inertia)
+                tp_stop_scroll_inertia(tp, time);
 		}
 	}
 
